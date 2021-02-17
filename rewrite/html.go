@@ -31,7 +31,7 @@ func HTML5(input *parse.Input, w io.Writer, urlRewriter URLRewriter) error {
 			currentTag = nil
 		case html.AttributeToken:
 			// TODO: handle meta http-equiv=refresh
-			err := rewriteAttribute(currentTag, lexer.Text(), lexer.AttrVal(), w, urlRewriter)
+			err := rewriteAttribute(currentTag, data, lexer.Text(), lexer.AttrVal(), w, urlRewriter)
 			switch {
 			case err == ErrNotModified:
 				copyInput = true
@@ -59,7 +59,7 @@ func HTML5(input *parse.Input, w io.Writer, urlRewriter URLRewriter) error {
 }
 
 // rewriteAttribute either writes new attribute version to w or returns ErrNotModified.
-func rewriteAttribute(tagName, attrName, attrValue []byte, w io.Writer, urlRewriter URLRewriter) error {
+func rewriteAttribute(tagName, data, attrName, attrValue []byte, w io.Writer, urlRewriter URLRewriter) error {
 	handler := findHandler(tagName, attrName)
 	if handler == nil {
 		return ErrNotModified
@@ -92,7 +92,7 @@ func rewriteAttribute(tagName, attrName, attrValue []byte, w io.Writer, urlRewri
 	}
 	newBytes := []byte(stdhtml.EscapeString(newString))
 
-	return multiWrite(w, attrName, []byte{'=', outputQuoteType}, newBytes, []byte{outputQuoteType})
+	return multiWrite(w, data[0:len(data)-len(attrValue)], []byte{outputQuoteType}, newBytes, []byte{outputQuoteType})
 }
 
 func multiWrite(w io.Writer, bufs ...[]byte) error {

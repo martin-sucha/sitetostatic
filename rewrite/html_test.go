@@ -34,11 +34,20 @@ func TestHTML5(t *testing.T) {
 			err:         "",
 		},
 		{
-			name:        "rewrite",
+			name:        "verbatim3",
 			input:       "<html   ><body><a href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
 			output:      "<html   ><body><a href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
 			urlRewriter: func(url string) (string, error) {
 				return "", ErrNotModified
+			},
+			err:         "",
+		},
+		{
+			name:        "rewrite",
+			input:       "<html   ><body><a   href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
+			output:      "<html   ><body><a   href=\"1&amp;.HTML.new\">1</a><a href='2.HTML.new'>1</a></body></html>",
+			urlRewriter: func(url string) (string, error) {
+				return strings.ToUpper(url) + ".new", nil
 			},
 			err:         "",
 		},
