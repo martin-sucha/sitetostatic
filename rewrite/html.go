@@ -193,7 +193,7 @@ func srcSetAttribute(attrValue string, urlRewriter URLRewriter) (string, error) 
 	anyModified := false
 	for i, part := range parts {
 		if i > 0 {
-			buf.WriteString(",")
+			buf.WriteString(", ")
 		}
 		trimmedPart := strings.TrimSpace(part)
 		parts2 := strings.SplitN(trimmedPart, " ", 2)
