@@ -3,7 +3,9 @@ package rewrite
 import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tdewolff/parse/v2"
+	"io/ioutil"
 	"strings"
 	"testing"
 )
@@ -12,7 +14,9 @@ func TestHTML5(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       string
+		inputFile   string
 		output      string
+		outputFile  string
 		urlRewriter URLRewriter
 		err string
 	}{
@@ -52,18 +56,39 @@ func TestHTML5(t *testing.T) {
 			},
 			err:         "",
 		},
+		{
+			name:        "xhtml verbatim",
+			inputFile:   "testdata/xhtml1.html",
+			outputFile:  "testdata/xhtml1.html",
+			urlRewriter: func(url string) (string, error) {
+				return "", ErrNotModified
+			},
+			err:         "",
+		},
 	}
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			input := parse.NewInputString(test.input)
+			inputData := []byte(test.input)
+			if test.inputFile != "" {
+				var err error
+				inputData, err = ioutil.ReadFile(test.inputFile)
+				require.NoError(t, err)
+			}
+			outputData := test.output
+			if test.outputFile != "" {
+				data, err := ioutil.ReadFile(test.outputFile)
+				require.NoError(t, err)
+				outputData = string(data)
+			}
+			input := parse.NewInputBytes(inputData)
 			var output strings.Builder
 			err := HTML5(input, &output, test.urlRewriter)
 			if test.err != "" {
 				assert.EqualError(t, err, test.err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, test.output, output.String())
+				assert.Equal(t, outputData, output.String())
 			}
 		})
 	}
