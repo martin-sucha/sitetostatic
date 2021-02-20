@@ -2,12 +2,13 @@ package rewrite
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tdewolff/parse/v2"
 	"io/ioutil"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tdewolff/parse/v2"
 )
 
 func TestHTML5(t *testing.T) {
@@ -18,52 +19,72 @@ func TestHTML5(t *testing.T) {
 		output      string
 		outputFile  string
 		urlRewriter URLRewriter
-		err string
+		err         string
 	}{
 		{
-			name:        "verbatim",
-			input:       "<html   ><body><a href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
-			output:      "<html   ><body><a href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
+			name:   "verbatim",
+			input:  "<html   ><body><a href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
+			output: "<html   ><body><a href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
 			urlRewriter: func(url string) (string, error) {
 				return "", ErrNotModified
 			},
-			err:         "",
+			err: "",
 		},
 		{
-			name:        "verbatim2",
-			input:       "<html><body><input disabled ><a href = \"3.html\"></a></body></html>",
-			output:      "<html><body><input disabled ><a href = \"3.html\"></a></body></html>",
+			name:   "verbatim2",
+			input:  "<html><body><input disabled ><a href = \"3.html\"></a></body></html>",
+			output: "<html><body><input disabled ><a href = \"3.html\"></a></body></html>",
 			urlRewriter: func(url string) (string, error) {
 				return "", ErrNotModified
 			},
-			err:         "",
+			err: "",
 		},
 		{
-			name:        "verbatim3",
-			input:       "<html   ><body><a href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
-			output:      "<html   ><body><a href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
+			name:   "verbatim3",
+			input:  "<html   ><body><a href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
+			output: "<html   ><body><a href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
 			urlRewriter: func(url string) (string, error) {
 				return "", ErrNotModified
 			},
-			err:         "",
+			err: "",
 		},
 		{
-			name:        "rewrite",
-			input:       "<html   ><body><a   href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
-			output:      "<html   ><body><a   href=\"1&amp;.HTML.new\">1</a><a href='2.HTML.new'>1</a></body></html>",
+			name:   "meta-refresh-verbatim",
+			input:  "<html   ><head><meta content=\" 5;url=2.html\" http-equiv=\"refresh\"></head><body></body></html>",
+			output: "<html   ><head><meta content=\" 5;url=2.html\" http-equiv=\"refresh\"></head><body></body></html>",
+			urlRewriter: func(url string) (string, error) {
+				return "", ErrNotModified
+
+			},
+			err: "",
+		},
+		{
+			name:   "meta-refresh-rewrite",
+			input:  "<html   ><head><meta content=\"5;url=2.html\" http-equiv=\"refresh\"></head><body></body></html>",
+			output: "<html   ><head><meta content=\"5;url=REPLACED\" http-equiv=\"refresh\"></head><body></body></html>",
+			urlRewriter: func(url string) (string, error) {
+				return "REPLACED", nil
+			},
+			err: "",
+		},
+		{
+			name:   "rewrite",
+			input:  "<html   ><body><a   href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
+			output: "<html   ><body><a   href=\"1&amp;.HTML.new\">1</a><a href='2.HTML.new'>1</a></body></html>",
 			urlRewriter: func(url string) (string, error) {
 				return strings.ToUpper(url) + ".new", nil
 			},
-			err:         "",
+			err: "",
 		},
 		{
-			name:        "xhtml verbatim",
-			inputFile:   "testdata/xhtml1.html",
-			outputFile:  "testdata/xhtml1.html",
+			name:       "xhtml verbatim",
+			inputFile:  "testdata/xhtml1.html",
+			outputFile: "testdata/xhtml1.html",
 			urlRewriter: func(url string) (string, error) {
 				return "", ErrNotModified
 			},
-			err:         "",
+			err: "",
+		},
 		},
 	}
 	for _, test := range tests {
@@ -96,58 +117,58 @@ func TestHTML5(t *testing.T) {
 
 func TestURLListAttribute(t *testing.T) {
 	tests := []struct {
-		name string
+		name      string
 		separator string
-		input string
-		output string
-		rewriter URLRewriter
-		err string
+		input     string
+		output    string
+		rewriter  URLRewriter
+		err       string
 	}{
 		{
-			name: "empty",
+			name:      "empty",
 			separator: ",",
-			input: "",
-			output: "REPLACED",
+			input:     "",
+			output:    "REPLACED",
 			rewriter: func(url string) (string, error) {
 				return "REPLACED", nil
 			},
 			err: "",
 		},
 		{
-			name: "single",
+			name:      "single",
 			separator: ",",
-			input: "./test.html",
-			output: "REPLACED",
+			input:     "./test.html",
+			output:    "REPLACED",
 			rewriter: func(url string) (string, error) {
 				return "REPLACED", nil
 			},
 			err: "",
 		},
 		{
-			name: "multiple",
+			name:      "multiple",
 			separator: ",",
-			input: "./test.html, test2.html",
-			output: "REPLACED,REPLACED",
+			input:     "./test.html, test2.html",
+			output:    "REPLACED,REPLACED",
 			rewriter: func(url string) (string, error) {
 				return "REPLACED", nil
 			},
 			err: "",
 		},
 		{
-			name: "multiple not modified",
+			name:      "multiple not modified",
 			separator: ",",
-			input: "./test.html, test2.html",
-			output: "",
+			input:     "./test.html, test2.html",
+			output:    "",
 			rewriter: func(url string) (string, error) {
 				return "NOT_REPLACED", ErrNotModified
 			},
 			err: "not modified",
 		},
 		{
-			name: "multiple some modified",
+			name:      "multiple some modified",
 			separator: ",",
-			input: "./test.html, test2.html",
-			output: "./test.html,REPLACED",
+			input:     "./test.html, test2.html",
+			output:    "./test.html,REPLACED",
 			rewriter: func(url string) (string, error) {
 				if url == "./test.html" {
 					return "", ErrNotModified
@@ -157,10 +178,10 @@ func TestURLListAttribute(t *testing.T) {
 			err: "",
 		},
 		{
-			name: "custom error",
+			name:      "custom error",
 			separator: ",",
-			input: "./test.html, test2.html",
-			output: "",
+			input:     "./test.html, test2.html",
+			output:    "",
 			rewriter: func(url string) (string, error) {
 				return "REPLACED", fmt.Errorf("custom error")
 			},
@@ -184,15 +205,15 @@ func TestURLListAttribute(t *testing.T) {
 
 func TestSrcSetAttribute(t *testing.T) {
 	tests := []struct {
-		name string
-		input string
-		output string
+		name     string
+		input    string
+		output   string
 		rewriter URLRewriter
-		err string
+		err      string
 	}{
 		{
-			name: "empty",
-			input: "",
+			name:   "empty",
+			input:  "",
 			output: "REPLACED",
 			rewriter: func(url string) (string, error) {
 				return "REPLACED", nil
@@ -200,8 +221,8 @@ func TestSrcSetAttribute(t *testing.T) {
 			err: "not modified",
 		},
 		{
-			name: "single simple",
-			input: "./test.html",
+			name:   "single simple",
+			input:  "./test.html",
 			output: "REPLACED",
 			rewriter: func(url string) (string, error) {
 				return "REPLACED", nil
@@ -209,8 +230,8 @@ func TestSrcSetAttribute(t *testing.T) {
 			err: "",
 		},
 		{
-			name: "single with options",
-			input: "./test.html 480w",
+			name:   "single with options",
+			input:  "./test.html 480w",
 			output: "REPLACED 480w",
 			rewriter: func(url string) (string, error) {
 				return "REPLACED", nil
@@ -218,8 +239,8 @@ func TestSrcSetAttribute(t *testing.T) {
 			err: "",
 		},
 		{
-			name: "multiple simple",
-			input: "./test.html, test2.html",
+			name:   "multiple simple",
+			input:  "./test.html, test2.html",
 			output: "REPLACED, REPLACED",
 			rewriter: func(url string) (string, error) {
 				return "REPLACED", nil
@@ -227,8 +248,8 @@ func TestSrcSetAttribute(t *testing.T) {
 			err: "",
 		},
 		{
-			name: "multiple with options",
-			input: "./test.html 480w, test2.html 870w",
+			name:   "multiple with options",
+			input:  "./test.html 480w, test2.html 870w",
 			output: "REPLACED 480w, REPLACED 870w",
 			rewriter: func(url string) (string, error) {
 				return "REPLACED", nil
@@ -236,8 +257,8 @@ func TestSrcSetAttribute(t *testing.T) {
 			err: "",
 		},
 		{
-			name: "multiple simple not modified",
-			input: "./test.html, test2.html",
+			name:   "multiple simple not modified",
+			input:  "./test.html, test2.html",
 			output: "",
 			rewriter: func(url string) (string, error) {
 				return "NOT_REPLACED", ErrNotModified
@@ -245,8 +266,8 @@ func TestSrcSetAttribute(t *testing.T) {
 			err: "not modified",
 		},
 		{
-			name: "multiple with options not modified",
-			input: "./test.html 480w, test2.html 780w",
+			name:   "multiple with options not modified",
+			input:  "./test.html 480w, test2.html 780w",
 			output: "",
 			rewriter: func(url string) (string, error) {
 				return "NOT_REPLACED", ErrNotModified
@@ -254,8 +275,8 @@ func TestSrcSetAttribute(t *testing.T) {
 			err: "not modified",
 		},
 		{
-			name: "multiple simple some modified",
-			input: "./test.html, test2.html",
+			name:   "multiple simple some modified",
+			input:  "./test.html, test2.html",
 			output: "./test.html, REPLACED",
 			rewriter: func(url string) (string, error) {
 				if url == "./test.html" {
@@ -266,8 +287,8 @@ func TestSrcSetAttribute(t *testing.T) {
 			err: "",
 		},
 		{
-			name: "multiple with options some modified",
-			input: "./test.html 480w, test2.html 780w",
+			name:   "multiple with options some modified",
+			input:  "./test.html 480w, test2.html 780w",
 			output: "./test.html 480w, REPLACED 780w",
 			rewriter: func(url string) (string, error) {
 				if url == "./test.html" {
@@ -278,8 +299,8 @@ func TestSrcSetAttribute(t *testing.T) {
 			err: "",
 		},
 		{
-			name: "custom error",
-			input: "./test.html, test2.html",
+			name:   "custom error",
+			input:  "./test.html, test2.html",
 			output: "",
 			rewriter: func(url string) (string, error) {
 				return "REPLACED", fmt.Errorf("custom error")

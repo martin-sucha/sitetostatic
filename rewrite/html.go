@@ -1,98 +1,245 @@
 package rewrite
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
-	"github.com/tdewolff/parse/v2"
-	"github.com/tdewolff/parse/v2/html"
 	stdhtml "html"
 	"io"
+	"regexp"
 	"strings"
+
+	"github.com/tdewolff/parse/v2"
+	"github.com/tdewolff/parse/v2/html"
 )
 
 // Rewrite HTML5 page present in data, replace links with the result of urlRewriter and write output to w.
 func HTML5(input *parse.Input, w io.Writer, urlRewriter URLRewriter) error {
-	lexer := html.NewLexer(input)
-	var currentTag []byte
-	startPos := input.Offset()
+	lc := lexerCopier{
+		input: input,
+		lexer: html.NewLexer(input),
+		w:     w,
+	}
 	for {
-		tt, data := lexer.Next()
+		tt, data := lc.next()
 		if tt == html.ErrorToken {
-			break
+			return ignoreEOF(lc.err())
 		}
-		endPos := input.Offset()
-		copyInput := true
 		fmt.Printf("%s %q\n", tt.String(), data)
 		switch tt {
 		case html.StartTagToken:
 			fmt.Printf("%q\n", data)
-			currentTag = lexer.Text()
-		case html.StartTagCloseToken, html.StartTagVoidToken:
-			currentTag = nil
-		case html.AttributeToken:
-			// TODO: handle meta http-equiv=refresh
-			err := rewriteAttribute(currentTag, data, lexer.Text(), lexer.AttrVal(), w, urlRewriter)
-			switch {
-			case err == ErrNotModified:
-				copyInput = true
-			case err != nil:
+			currentTag := lc.text()
+			err := lc.copy()
+			if err != nil {
 				return err
-			default:
-				copyInput = false
 			}
-		case html.TextToken:
-			fmt.Printf("text %q\n", data)
-		}
-		if copyInput {
-			_, err := w.Write(input.Bytes()[startPos:endPos])
+			if bytes.Equal(currentTag, []byte("meta")) {
+				err := processMeta(lc, urlRewriter)
+				if err != nil {
+					return err
+				}
+			} else {
+				err := rewriteAttributes(&lc, currentTag, urlRewriter)
+				if err != nil {
+					return err
+				}
+			}
+		default:
+			err := lc.copy()
 			if err != nil {
 				return err
 			}
 		}
-		startPos = endPos
 	}
-	err := lexer.Err()
-	if !errors.Is(err, io.EOF) {
-		return err
-	}
-	return nil
 }
 
-// rewriteAttribute either writes new attribute version to w or returns ErrNotModified.
-func rewriteAttribute(tagName, data, attrName, attrValue []byte, w io.Writer, urlRewriter URLRewriter) error {
-	handler := findHandler(tagName, attrName)
-	if handler == nil {
-		return ErrNotModified
+func ignoreEOF(err error) error {
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
+}
+
+func processMeta(lc lexerCopier, urlRewriter URLRewriter) error {
+	attrs, closeTagRaw, err := readAttributes(&lc)
+	if err != nil {
+		return err
+	}
+	var flags metaFlag
+
+	for _, attr := range attrs {
+		if bytes.Equal(attr.attrName, []byte("http-equiv")) {
+			flags |= metaFlagRefresh
+		}
 	}
 
+	switch flags {
+	case metaFlagRefresh:
+		for _, attr := range attrs {
+			if bytes.Equal(attr.attrName, []byte("content")) {
+				err := attr.rewrite(lc.w, httpEquivRefreshAttribute, urlRewriter)
+				if err != nil {
+					return err
+				}
+			} else {
+				_, err := lc.w.Write(attr.rawData)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	default:
+		for _, attr := range attrs {
+			_, err := lc.w.Write(attr.rawData)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	_, err = lc.w.Write(closeTagRaw)
+	return err
+}
+
+type metaFlag uint8
+
+const (
+	metaFlagRefresh = 1 << iota
+)
+
+func readAttributes(lc *lexerCopier) ([]attributeToken, []byte, error) {
+	attributes := make([]attributeToken, 0, 10)
+	for {
+		tt, data := lc.next()
+		switch tt {
+		case html.AttributeToken:
+			attributes = append(attributes, attributeToken{
+				data:      data,
+				rawData:   lc.rawData(),
+				attrName:  lc.text(),
+				attrValue: lc.attrVal(),
+			})
+		case html.StartTagCloseToken, html.StartTagVoidToken:
+			return attributes, lc.rawData(), nil
+		case html.ErrorToken:
+			return attributes, nil, lc.err()
+		default:
+			return attributes, nil, fmt.Errorf("unexpected token: %s", tt.String())
+		}
+	}
+}
+
+// rewriteAttributes rewrites tag's attributes in place.
+func rewriteAttributes(lc *lexerCopier, tagName []byte, urlRewriter URLRewriter) error {
+	for {
+		tt, data := lc.next()
+		switch tt {
+		case html.AttributeToken:
+			handler := findHandler(tagName, lc.text())
+			if handler == nil {
+				return lc.copy()
+			}
+			attr := attributeToken{
+				data:      data,
+				rawData:   lc.rawData(),
+				attrName:  lc.text(),
+				attrValue: lc.attrVal(),
+			}
+			err := attr.rewrite(lc.w, handler, urlRewriter)
+			if err != nil {
+				return err
+			}
+		case html.StartTagCloseToken, html.StartTagVoidToken:
+			return lc.copy()
+		case html.ErrorToken:
+			return lc.err()
+		default:
+			return fmt.Errorf("unexpected token: %s", tt.String())
+		}
+	}
+}
+
+type lexerCopier struct {
+	input            *parse.Input
+	lexer            *html.Lexer
+	w                io.Writer
+	startPos, endPos int
+}
+
+func (lc *lexerCopier) next() (html.TokenType, []byte) {
+	lc.startPos = lc.input.Offset()
+	tt, data := lc.lexer.Next()
+	lc.endPos = lc.input.Offset()
+	return tt, data
+}
+
+func (lc *lexerCopier) text() []byte {
+	return lc.lexer.Text()
+}
+
+func (lc *lexerCopier) attrVal() []byte {
+	return lc.lexer.AttrVal()
+}
+
+func (lc *lexerCopier) copy() error {
+	_, err := lc.w.Write(lc.rawData())
+	return err
+}
+
+func (lc *lexerCopier) rawData() []byte {
+	return lc.input.Bytes()[lc.startPos:lc.endPos]
+}
+
+func (lc *lexerCopier) err() error {
+	return lc.lexer.Err()
+}
+
+type attributeToken struct {
+	data      []byte
+	rawData   []byte
+	attrName  []byte
+	attrValue []byte
+}
+
+func (at *attributeToken) copy(w io.Writer) error {
+	_, err := w.Write(at.rawData)
+	return err
+}
+
+// rewriteAttribute either writes new attribute version to w.
+func (at *attributeToken) rewrite(w io.Writer, handler attrHandler, urlRewriter URLRewriter) error {
 	var outputQuoteType byte
 	var value []byte
-	if len(attrValue) > 0 && (attrValue[0] == '\'' || attrValue[0] == '"') {
-		if len(attrValue) < 2 {
-			return fmt.Errorf("attribute %q does not have ending quote", string(attrValue))
+	if len(at.attrValue) > 0 && (at.attrValue[0] == '\'' || at.attrValue[0] == '"') {
+		if len(at.attrValue) < 2 {
+			return fmt.Errorf("attribute %q does not have ending quote", string(at.attrValue))
 		}
-		startQuote := attrValue[0]
-		endQuote := attrValue[len(attrValue)-1]
+		startQuote := at.attrValue[0]
+		endQuote := at.attrValue[len(at.attrValue)-1]
 		if startQuote != endQuote {
 			return fmt.Errorf("attribute quote mismatch %q vs %q", string(startQuote), string(endQuote))
 		}
 		// quoted attribute in input
 		outputQuoteType = startQuote
-		value = attrValue[1:len(attrValue)-1]
+		value = at.attrValue[1 : len(at.attrValue)-1]
 	} else {
 		// unquoted attribute in input, output is always quoted
 		outputQuoteType = '"'
-		value = attrValue
+		value = at.attrValue
 	}
 
 	cleanValue := stdhtml.UnescapeString(string(value))
 	newString, err := handler(cleanValue, urlRewriter)
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrNotModified):
+		return at.copy(w)
+	case err != nil:
 		return err
 	}
 	newBytes := []byte(stdhtml.EscapeString(newString))
 
-	return multiWrite(w, data[0:len(data)-len(attrValue)], []byte{outputQuoteType}, newBytes, []byte{outputQuoteType})
+	return multiWrite(w, at.data[0:len(at.data)-len(at.attrValue)], []byte{outputQuoteType}, newBytes,
+		[]byte{outputQuoteType})
 }
 
 func multiWrite(w io.Writer, bufs ...[]byte) error {
@@ -135,20 +282,20 @@ var attributeHandlers = map[string]map[string]attrHandler{
 		"applet": urlListAttribute(","),
 	},
 	"background": tags("body"),
-	"cite": tags("blockquote", "del", "ins", "q"),
-	"classid": tags("object"),
-	"codebase": tags("applet", "object"),
-	"data": tags("object"),
+	"cite":       tags("blockquote", "del", "ins", "q"),
+	"classid":    tags("object"),
+	"codebase":   tags("applet", "object"),
+	"data":       tags("object"),
 	"formaction": tags("button", "input"),
-	"href": tags("a", "area", "link"), // ignore base for now
-	"icon": tags("command"),
-	"longdesc": tags("img", "frame", "iframe"),
-	"manifest": tags("html"),
-	"poster": tags("video"),
-	"profile": tags("head"),
-	"src": tags("audio", "embed", "iframe", "img", "input", "script", "source", "track", "video", "frame"),
+	"href":       tags("a", "area", "link"), // ignore base for now
+	"icon":       tags("command"),
+	"longdesc":   tags("img", "frame", "iframe"),
+	"manifest":   tags("html"),
+	"poster":     tags("video"),
+	"profile":    tags("head"),
+	"src":        tags("audio", "embed", "iframe", "img", "input", "script", "source", "track", "video", "frame"),
 	"srcset": {
-		"img": srcSetAttribute,
+		"img":    srcSetAttribute,
 		"source": srcSetAttribute,
 	},
 	"usemap": tags("img", "input", "object"),
@@ -220,4 +367,22 @@ func srcSetAttribute(attrValue string, urlRewriter URLRewriter) (string, error) 
 		return "", ErrNotModified
 	}
 	return buf.String(), nil
+}
+
+var refreshRegexp = regexp.MustCompile(`^\s*(\d+)\s*(?:;url=(.*)\s*)?$`)
+
+func httpEquivRefreshAttribute(attrValue string, rewriter URLRewriter) (string, error) {
+	m := refreshRegexp.FindStringSubmatch(attrValue)
+	if len(m) != 3 {
+		return "", ErrNotModified
+	}
+	newURL, err := rewriter(m[2])
+	if err != nil {
+		return "", err
+	}
+	var sb strings.Builder
+	sb.WriteString(m[1])
+	sb.WriteString(";url=")
+	sb.WriteString(newURL)
+	return sb.String(), nil
 }
