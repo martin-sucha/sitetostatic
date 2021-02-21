@@ -16,9 +16,10 @@ import (
 // Rewrite HTML5 page present in data, replace links with the result of urlRewriter and write output to w.
 func HTML5(input *parse.Input, w io.Writer, urlRewriter URLRewriter) error {
 	lc := html5Rewriter{
-		input: input,
-		lexer: html.NewLexer(input),
-		w:     w,
+		input:       input,
+		lexer:       html.NewLexer(input),
+		w:           w,
+		urlRewriter: urlRewriter,
 	}
 	for {
 		tt, data := lc.next()
@@ -35,38 +36,22 @@ func HTML5(input *parse.Input, w io.Writer, urlRewriter URLRewriter) error {
 				return err
 			}
 			if bytes.Equal(currentTag, []byte("meta")) {
-				err := processMeta(lc, urlRewriter)
+				err := lc.processMeta()
 				if err != nil {
 					return err
 				}
 			} else if bytes.Equal(currentTag, []byte("base")) {
-				err := rewriteAttributes(&lc, currentTag, urlRewriter, func(tagName, attrName []byte) attrHandler {
+				err := rewriteAttributes(&lc, currentTag, func(tagName, attrName []byte) attrHandler {
 					if !bytes.Equal(attrName, []byte("href")) {
 						return nil
 					}
-					return func(attrValue string, urlRewriter URLRewriter) (string, error) {
-						if lc.baseURLSet {
-							return "", ErrNotModified
-						}
-						lc.baseURL = attrValue
-						newBaseURL, err := urlRewriter(attrValue)
-						switch {
-						case errors.Is(err, ErrNotModified):
-							lc.newBaseURL = lc.baseURL
-							return "", ErrNotModified
-						case err != nil:
-							return "", err
-						default:
-							lc.newBaseURL = newBaseURL
-							return newBaseURL, nil
-						}
-					}
+					return baseHrefAttribute
 				})
 				if err != nil {
 					return err
 				}
 			} else {
-				err := rewriteAttributes(&lc, currentTag, urlRewriter, findHandler)
+				err := rewriteAttributes(&lc, currentTag, findHandler)
 				if err != nil {
 					return err
 				}
@@ -87,8 +72,8 @@ func ignoreEOF(err error) error {
 	return err
 }
 
-func processMeta(lc html5Rewriter, urlRewriter URLRewriter) error {
-	attrs, closeTagRaw, err := readAttributes(&lc)
+func (lc *html5Rewriter) processMeta() error {
+	attrs, closeTagRaw, err := readAttributes(lc)
 	if err != nil {
 		return err
 	}
@@ -104,7 +89,7 @@ func processMeta(lc html5Rewriter, urlRewriter URLRewriter) error {
 	case metaFlagRefresh:
 		for _, attr := range attrs {
 			if bytes.Equal(attr.attrName, []byte("content")) {
-				err := attr.rewrite(lc.w, httpEquivRefreshAttribute, urlRewriter)
+				err := attr.rewrite(lc, httpEquivRefreshAttribute)
 				if err != nil {
 					return err
 				}
@@ -156,7 +141,7 @@ func readAttributes(lc *html5Rewriter) ([]attributeToken, []byte, error) {
 }
 
 // rewriteAttributes rewrites tag's attributes in place.
-func rewriteAttributes(lc *html5Rewriter, tagName []byte, urlRewriter URLRewriter, findHandlerFunc findHandlerFunc) error {
+func rewriteAttributes(lc *html5Rewriter, tagName []byte, findHandlerFunc findHandlerFunc) error {
 	for {
 		tt, data := lc.next()
 		switch tt {
@@ -171,7 +156,7 @@ func rewriteAttributes(lc *html5Rewriter, tagName []byte, urlRewriter URLRewrite
 				attrName:  lc.text(),
 				attrValue: lc.attrVal(),
 			}
-			err := attr.rewrite(lc.w, handler, urlRewriter)
+			err := attr.rewrite(lc, handler)
 			if err != nil {
 				return err
 			}
@@ -192,6 +177,7 @@ type html5Rewriter struct {
 	startPos, endPos    int
 	baseURL, newBaseURL string
 	baseURLSet          bool
+	urlRewriter         URLRewriter
 }
 
 func (lc *html5Rewriter) next() (html.TokenType, []byte) {
@@ -235,7 +221,7 @@ func (at *attributeToken) copy(w io.Writer) error {
 }
 
 // rewriteAttribute either writes new attribute version to w.
-func (at *attributeToken) rewrite(w io.Writer, handler attrHandler, urlRewriter URLRewriter) error {
+func (at *attributeToken) rewrite(lc *html5Rewriter, handler attrHandler) error {
 	var outputQuoteType byte
 	var value []byte
 	if len(at.attrValue) > 0 && (at.attrValue[0] == '\'' || at.attrValue[0] == '"') {
@@ -257,16 +243,16 @@ func (at *attributeToken) rewrite(w io.Writer, handler attrHandler, urlRewriter 
 	}
 
 	cleanValue := stdhtml.UnescapeString(string(value))
-	newString, err := handler(cleanValue, urlRewriter)
+	newString, err := handler(lc, cleanValue)
 	switch {
 	case errors.Is(err, ErrNotModified):
-		return at.copy(w)
+		return at.copy(lc.w)
 	case err != nil:
 		return err
 	}
 	newBytes := []byte(stdhtml.EscapeString(newString))
 
-	return multiWrite(w, at.data[0:len(at.data)-len(at.attrValue)], []byte{outputQuoteType}, newBytes,
+	return multiWrite(lc.w, at.data[0:len(at.data)-len(at.attrValue)], []byte{outputQuoteType}, newBytes,
 		[]byte{outputQuoteType})
 }
 
@@ -331,14 +317,18 @@ var attributeHandlers = map[string]map[string]attrHandler{
 	"usemap": tags("img", "input", "object"),
 }
 
-type attrHandler func(attrValue string, urlRewriter URLRewriter) (string, error)
+type attrHandler func(lc *html5Rewriter, attrValue string) (string, error)
 
-func urlAttribute(attrValue string, urlRewriter URLRewriter) (string, error) {
-	return urlRewriter(attrValue)
+func urlAttribute(lc *html5Rewriter, attrValue string) (string, error) {
+	return lc.urlRewriter(URL{
+		Value:   attrValue,
+		Base:    lc.baseURL,
+		NewBase: lc.newBaseURL,
+	})
 }
 
 func urlListAttribute(separator string) attrHandler {
-	return func(attrValue string, urlRewriter URLRewriter) (string, error) {
+	return func(lc *html5Rewriter, attrValue string) (string, error) {
 		var buf strings.Builder
 		parts := strings.Split(attrValue, separator)
 		anyModified := false
@@ -346,7 +336,11 @@ func urlListAttribute(separator string) attrHandler {
 			if i > 0 {
 				buf.WriteString(separator)
 			}
-			rewritten, err := urlRewriter(part)
+			rewritten, err := lc.urlRewriter(URL{
+				Value:   part,
+				Base:    lc.baseURL,
+				NewBase: lc.newBaseURL,
+			})
 			switch {
 			case errors.Is(err, ErrNotModified):
 				buf.WriteString(part)
@@ -364,7 +358,7 @@ func urlListAttribute(separator string) attrHandler {
 	}
 }
 
-func srcSetAttribute(attrValue string, urlRewriter URLRewriter) (string, error) {
+func srcSetAttribute(lc *html5Rewriter, attrValue string) (string, error) {
 	var buf strings.Builder
 	parts := strings.Split(attrValue, ",")
 	anyModified := false
@@ -375,7 +369,11 @@ func srcSetAttribute(attrValue string, urlRewriter URLRewriter) (string, error) 
 		trimmedPart := strings.TrimSpace(part)
 		parts2 := strings.SplitN(trimmedPart, " ", 2)
 		if len(trimmedPart) > 0 && len(parts2) > 0 {
-			rewritten, err := urlRewriter(parts2[0])
+			rewritten, err := lc.urlRewriter(URL{
+				Value:   parts2[0],
+				Base:    lc.baseURL,
+				NewBase: lc.newBaseURL,
+			})
 			switch {
 			case errors.Is(err, ErrNotModified):
 				buf.WriteString(part)
@@ -401,12 +399,16 @@ func srcSetAttribute(attrValue string, urlRewriter URLRewriter) (string, error) 
 
 var refreshRegexp = regexp.MustCompile(`^\s*(\d+)\s*(?:;url=(.*)\s*)?$`)
 
-func httpEquivRefreshAttribute(attrValue string, rewriter URLRewriter) (string, error) {
+func httpEquivRefreshAttribute(lc *html5Rewriter, attrValue string) (string, error) {
 	m := refreshRegexp.FindStringSubmatch(attrValue)
 	if len(m) != 3 {
 		return "", ErrNotModified
 	}
-	newURL, err := rewriter(m[2])
+	newURL, err := lc.urlRewriter(URL{
+		Value:   m[2],
+		Base:    lc.baseURL,
+		NewBase: lc.newBaseURL,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -415,4 +417,22 @@ func httpEquivRefreshAttribute(attrValue string, rewriter URLRewriter) (string, 
 	sb.WriteString(";url=")
 	sb.WriteString(newURL)
 	return sb.String(), nil
+}
+
+func baseHrefAttribute(lc *html5Rewriter, attrValue string) (string, error) {
+	if lc.baseURLSet {
+		return "", ErrNotModified
+	}
+	lc.baseURL = attrValue
+	newBaseURL, err := lc.urlRewriter(URL{Value: attrValue})
+	switch {
+	case errors.Is(err, ErrNotModified):
+		lc.newBaseURL = lc.baseURL
+		return "", ErrNotModified
+	case err != nil:
+		return "", err
+	default:
+		lc.newBaseURL = newBaseURL
+		return newBaseURL, nil
+	}
 }
