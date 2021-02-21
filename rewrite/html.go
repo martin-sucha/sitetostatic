@@ -78,10 +78,18 @@ func (lc *html5Rewriter) processMeta() error {
 		return err
 	}
 	var flags metaFlag
+	var itemProp string
 
 	for _, attr := range attrs {
 		if bytes.Equal(attr.attrName, []byte("http-equiv")) {
 			flags |= metaFlagRefresh
+		} else if bytes.Equal(attr.attrName, []byte("itemprop")) || bytes.Equal(attr.attrName, []byte("property")) {
+			flags |= metaFlagItemProp
+			_, cleanValue, err := attr.cleanValue()
+			if err != nil {
+				return err
+			}
+			itemProp = cleanValue
 		}
 	}
 
@@ -94,6 +102,29 @@ func (lc *html5Rewriter) processMeta() error {
 					return err
 				}
 			} else {
+				_, err := lc.w.Write(attr.rawData)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	case metaFlagItemProp:
+		if isOpenGraphURLProperty(itemProp) {
+			for _, attr := range attrs {
+				if bytes.Equal(attr.attrName, []byte("content")) {
+					err := attr.rewrite(lc, openGraphContentAttribute)
+					if err != nil {
+						return err
+					}
+				} else {
+					_, err := lc.w.Write(attr.rawData)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		} else {
+			for _, attr := range attrs {
 				_, err := lc.w.Write(attr.rawData)
 				if err != nil {
 					return err
@@ -116,6 +147,7 @@ type metaFlag uint8
 
 const (
 	metaFlagRefresh = 1 << iota
+	metaFlagItemProp
 )
 
 func readAttributes(lc *html5Rewriter) ([]attributeToken, []byte, error) {
@@ -220,18 +252,17 @@ func (at *attributeToken) copy(w io.Writer) error {
 	return err
 }
 
-// rewriteAttribute either writes new attribute version to w.
-func (at *attributeToken) rewrite(lc *html5Rewriter, handler attrHandler) error {
+func (at *attributeToken) cleanValue() (byte, string, error) {
 	var outputQuoteType byte
 	var value []byte
 	if len(at.attrValue) > 0 && (at.attrValue[0] == '\'' || at.attrValue[0] == '"') {
 		if len(at.attrValue) < 2 {
-			return fmt.Errorf("attribute %q does not have ending quote", string(at.attrValue))
+			return 0, "", fmt.Errorf("attribute %q does not have ending quote", string(at.attrValue))
 		}
 		startQuote := at.attrValue[0]
 		endQuote := at.attrValue[len(at.attrValue)-1]
 		if startQuote != endQuote {
-			return fmt.Errorf("attribute quote mismatch %q vs %q", string(startQuote), string(endQuote))
+			return 0, "", fmt.Errorf("attribute quote mismatch %q vs %q", string(startQuote), string(endQuote))
 		}
 		// quoted attribute in input
 		outputQuoteType = startQuote
@@ -243,6 +274,16 @@ func (at *attributeToken) rewrite(lc *html5Rewriter, handler attrHandler) error 
 	}
 
 	cleanValue := stdhtml.UnescapeString(string(value))
+	return outputQuoteType, cleanValue, nil
+}
+
+// rewriteAttribute either writes new attribute version to w.
+func (at *attributeToken) rewrite(lc *html5Rewriter, handler attrHandler) error {
+	outputQuoteType, cleanValue, err := at.cleanValue()
+	if err != nil {
+		return err
+	}
+
 	newString, err := handler(lc, cleanValue)
 	switch {
 	case errors.Is(err, ErrNotModified):
@@ -324,6 +365,18 @@ func urlAttribute(lc *html5Rewriter, attrValue string) (string, error) {
 		Value:   attrValue,
 		Base:    lc.baseURL,
 		NewBase: lc.newBaseURL,
+		Type:    URLTypeUnknown,
+	})
+}
+
+func openGraphContentAttribute(lc *html5Rewriter, attrValue string) (string, error) {
+	// OpenGraph URLs are always absolute, they don't obey base.
+	// https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base#open_graph
+	return lc.urlRewriter(URL{
+		Value:   attrValue,
+		Base:    "",
+		NewBase: "",
+		Type:    URLTypeOpenGraph,
 	})
 }
 
@@ -340,6 +393,7 @@ func urlListAttribute(separator string) attrHandler {
 				Value:   part,
 				Base:    lc.baseURL,
 				NewBase: lc.newBaseURL,
+				Type:    URLTypeUnknown,
 			})
 			switch {
 			case errors.Is(err, ErrNotModified):
@@ -373,6 +427,7 @@ func srcSetAttribute(lc *html5Rewriter, attrValue string) (string, error) {
 				Value:   parts2[0],
 				Base:    lc.baseURL,
 				NewBase: lc.newBaseURL,
+				Type:    URLTypeUnknown,
 			})
 			switch {
 			case errors.Is(err, ErrNotModified):
@@ -408,6 +463,7 @@ func httpEquivRefreshAttribute(lc *html5Rewriter, attrValue string) (string, err
 		Value:   m[2],
 		Base:    lc.baseURL,
 		NewBase: lc.newBaseURL,
+		Type:    URLTypeUnknown,
 	})
 	if err != nil {
 		return "", err
@@ -424,7 +480,7 @@ func baseHrefAttribute(lc *html5Rewriter, attrValue string) (string, error) {
 		return "", ErrNotModified
 	}
 	lc.baseURL = attrValue
-	newBaseURL, err := lc.urlRewriter(URL{Value: attrValue})
+	newBaseURL, err := lc.urlRewriter(URL{Value: attrValue, Type: URLTypeBase})
 	switch {
 	case errors.Is(err, ErrNotModified):
 		lc.newBaseURL = lc.baseURL

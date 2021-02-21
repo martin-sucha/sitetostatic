@@ -18,4 +18,14 @@ type URL struct {
 	// NewBase is the new base URL.
 	// Empty if rewriting the base URL itself.
 	NewBase string
+	// Type of the URL.
+	Type URLType
 }
+
+type URLType uint8
+
+const (
+	URLTypeUnknown URLType = iota
+	URLTypeBase
+	URLTypeOpenGraph
+)

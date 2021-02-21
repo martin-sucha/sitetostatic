@@ -104,6 +104,14 @@ func TestHTML5(t *testing.T) {
 			},
 			err: "",
 		},
+		{
+			name:       "xhtml replaced",
+			inputFile:  "testdata/xhtml1.html",
+			outputFile: "testdata/xhtml1.replaced.html",
+			urlRewriter: func(url URL) (string, error) {
+				return "REPLACED", nil
+			},
+			err: "",
 		},
 	}
 	for _, test := range tests {
