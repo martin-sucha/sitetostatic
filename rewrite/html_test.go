@@ -68,6 +68,25 @@ func TestHTML5(t *testing.T) {
 			err: "",
 		},
 		{
+			name:   "base-href-verbatim",
+			input:  "<html   ><head><base href=\"http://example.com\"></head><body></body></html>",
+			output: "<html   ><head><base href=\"http://example.com\"></head><body></body></html>",
+			urlRewriter: func(url string) (string, error) {
+				return "", ErrNotModified
+
+			},
+			err: "",
+		},
+		{
+			name:   "base-href-rewrite",
+			input:  "<html   ><head><base href=\"http://example.com\"></head><body></body></html>",
+			output: "<html   ><head><base href=\"REPLACED\"></head><body></body></html>",
+			urlRewriter: func(url string) (string, error) {
+				return "REPLACED", nil
+			},
+			err: "",
+		},
+		{
 			name:   "rewrite",
 			input:  "<html   ><body><a   href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
 			output: "<html   ><body><a   href=\"1&amp;.HTML.new\">1</a><a href='2.HTML.new'>1</a></body></html>",

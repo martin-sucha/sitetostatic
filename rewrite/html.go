@@ -15,7 +15,7 @@ import (
 
 // Rewrite HTML5 page present in data, replace links with the result of urlRewriter and write output to w.
 func HTML5(input *parse.Input, w io.Writer, urlRewriter URLRewriter) error {
-	lc := lexerCopier{
+	lc := html5Rewriter{
 		input: input,
 		lexer: html.NewLexer(input),
 		w:     w,
@@ -39,8 +39,34 @@ func HTML5(input *parse.Input, w io.Writer, urlRewriter URLRewriter) error {
 				if err != nil {
 					return err
 				}
+			} else if bytes.Equal(currentTag, []byte("base")) {
+				err := rewriteAttributes(&lc, currentTag, urlRewriter, func(tagName, attrName []byte) attrHandler {
+					if !bytes.Equal(attrName, []byte("href")) {
+						return nil
+					}
+					return func(attrValue string, urlRewriter URLRewriter) (string, error) {
+						if lc.baseURLSet {
+							return "", ErrNotModified
+						}
+						lc.baseURL = attrValue
+						newBaseURL, err := urlRewriter(attrValue)
+						switch {
+						case errors.Is(err, ErrNotModified):
+							lc.newBaseURL = lc.baseURL
+							return "", ErrNotModified
+						case err != nil:
+							return "", err
+						default:
+							lc.newBaseURL = newBaseURL
+							return newBaseURL, nil
+						}
+					}
+				})
+				if err != nil {
+					return err
+				}
 			} else {
-				err := rewriteAttributes(&lc, currentTag, urlRewriter)
+				err := rewriteAttributes(&lc, currentTag, urlRewriter, findHandler)
 				if err != nil {
 					return err
 				}
@@ -61,7 +87,7 @@ func ignoreEOF(err error) error {
 	return err
 }
 
-func processMeta(lc lexerCopier, urlRewriter URLRewriter) error {
+func processMeta(lc html5Rewriter, urlRewriter URLRewriter) error {
 	attrs, closeTagRaw, err := readAttributes(&lc)
 	if err != nil {
 		return err
@@ -107,7 +133,7 @@ const (
 	metaFlagRefresh = 1 << iota
 )
 
-func readAttributes(lc *lexerCopier) ([]attributeToken, []byte, error) {
+func readAttributes(lc *html5Rewriter) ([]attributeToken, []byte, error) {
 	attributes := make([]attributeToken, 0, 10)
 	for {
 		tt, data := lc.next()
@@ -130,12 +156,12 @@ func readAttributes(lc *lexerCopier) ([]attributeToken, []byte, error) {
 }
 
 // rewriteAttributes rewrites tag's attributes in place.
-func rewriteAttributes(lc *lexerCopier, tagName []byte, urlRewriter URLRewriter) error {
+func rewriteAttributes(lc *html5Rewriter, tagName []byte, urlRewriter URLRewriter, findHandlerFunc findHandlerFunc) error {
 	for {
 		tt, data := lc.next()
 		switch tt {
 		case html.AttributeToken:
-			handler := findHandler(tagName, lc.text())
+			handler := findHandlerFunc(tagName, lc.text())
 			if handler == nil {
 				return lc.copy()
 			}
@@ -159,38 +185,40 @@ func rewriteAttributes(lc *lexerCopier, tagName []byte, urlRewriter URLRewriter)
 	}
 }
 
-type lexerCopier struct {
-	input            *parse.Input
-	lexer            *html.Lexer
-	w                io.Writer
-	startPos, endPos int
+type html5Rewriter struct {
+	input               *parse.Input
+	lexer               *html.Lexer
+	w                   io.Writer
+	startPos, endPos    int
+	baseURL, newBaseURL string
+	baseURLSet          bool
 }
 
-func (lc *lexerCopier) next() (html.TokenType, []byte) {
+func (lc *html5Rewriter) next() (html.TokenType, []byte) {
 	lc.startPos = lc.input.Offset()
 	tt, data := lc.lexer.Next()
 	lc.endPos = lc.input.Offset()
 	return tt, data
 }
 
-func (lc *lexerCopier) text() []byte {
+func (lc *html5Rewriter) text() []byte {
 	return lc.lexer.Text()
 }
 
-func (lc *lexerCopier) attrVal() []byte {
+func (lc *html5Rewriter) attrVal() []byte {
 	return lc.lexer.AttrVal()
 }
 
-func (lc *lexerCopier) copy() error {
+func (lc *html5Rewriter) copy() error {
 	_, err := lc.w.Write(lc.rawData())
 	return err
 }
 
-func (lc *lexerCopier) rawData() []byte {
+func (lc *html5Rewriter) rawData() []byte {
 	return lc.input.Bytes()[lc.startPos:lc.endPos]
 }
 
-func (lc *lexerCopier) err() error {
+func (lc *html5Rewriter) err() error {
 	return lc.lexer.Err()
 }
 
@@ -268,6 +296,8 @@ func findHandler(tagName, attrName []byte) attrHandler {
 	}
 	return attr[string(tagName)]
 }
+
+type findHandlerFunc func(tagName, attrName []byte) attrHandler
 
 // attributeHandlers is a map[attrName]map[tagName]attrHandler
 // based on:
