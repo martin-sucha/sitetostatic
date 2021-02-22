@@ -14,7 +14,28 @@ import (
 	"github.com/tdewolff/parse/v2"
 )
 
-func CSS(input *parse.Input, w io.Writer, rewriter URLRewriter) error {
+func CSS(input *parse.Input, w io.Writer, rewriter URLRewriter, isInline bool) error {
+	//p := css.NewParser(input, isInline)
+	//for {
+	//	gt, tt, data := p.Next()
+	//	if gt == css.ErrorGrammar {
+	//		return ignoreEOF(p.Err())
+	//	}
+	//
+	//	switch gt {
+	//	case css.AtRuleGrammar:
+	//		if bytes.EqualFold(data, []byte("@import")) {
+	//			parse
+	//		} else {
+	//
+	//		}
+	//	}
+	//
+	//	fmt.Printf("%s %s %q\n", gt.String(), tt.String(), string(data))
+	//	for _, tok := range p.Values() {
+	//		fmt.Printf("  %s %q\n", tok.TokenType, tok.Data)
+	//	}
+	//}
 	l := css.NewLexer(input)
 	lc := &cssRewriter{
 		input:       input,
@@ -32,6 +53,18 @@ func CSS(input *parse.Input, w io.Writer, rewriter URLRewriter) error {
 			if err != nil {
 				return err
 			}
+		case css.AtKeywordToken:
+			if bytes.EqualFold(text, []byte("@import")) {
+				err := lc.processImport()
+				if err != nil {
+					return err
+				}
+			} else {
+				err := lc.copy()
+				if err != nil {
+					return err
+				}
+			}
 		default:
 			err := lc.copy()
 			if err != nil {
@@ -47,13 +80,28 @@ type cssRewriter struct {
 	w                io.Writer
 	startPos, endPos int
 	urlRewriter      URLRewriter
+
+	pushedBack bool
+	tt         css.TokenType
+	text       []byte
 }
 
 func (lc *cssRewriter) next() (css.TokenType, []byte) {
+	if lc.pushedBack {
+		lc.pushedBack = false
+		return lc.tt, lc.text
+	}
 	lc.startPos = lc.input.Offset()
 	tt, data := lc.lexer.Next()
 	lc.endPos = lc.input.Offset()
 	return tt, data
+}
+
+func (lc *cssRewriter) pushBack() {
+	if lc.pushedBack {
+		panic("a token is already stored")
+	}
+	lc.pushedBack = true
 }
 
 func (lc *cssRewriter) copy() error {
@@ -67,6 +115,64 @@ func (lc *cssRewriter) rawData() []byte {
 
 func (lc *cssRewriter) err() error {
 	return lc.lexer.Err()
+}
+
+func (lc *cssRewriter) processImport() error {
+	// copy the @import token
+	err := lc.copy()
+	if err != nil {
+		return err
+	}
+	tt, _ := lc.next()
+	switch tt {
+	case css.ErrorToken:
+		return lc.err()
+	case css.WhitespaceToken:
+		err = lc.copy()
+		if err != nil {
+			return err
+		}
+	default:
+		// unexpected, go back to regular handling
+		lc.pushBack()
+		return nil
+	}
+
+	tt, text := lc.next()
+	switch tt {
+	case css.ErrorToken:
+		return lc.err()
+	case css.StringToken:
+		value, size, err := cssUnescapeString(text)
+		if err != nil {
+			return err
+		}
+		if size != len(text) {
+			return fmt.Errorf("string does not span whole string token")
+		}
+		newValue, err := lc.urlRewriter(URL{
+			Value: value,
+			Type:  URLTypeCSS,
+		})
+		switch {
+		case errors.Is(err, ErrNotModified):
+			return lc.copy()
+		case err != nil:
+			return err
+		}
+		escaped, err := cssEscapeString(newValue)
+		if err != nil {
+			return err
+		}
+		_, err = lc.w.Write(escaped)
+		return err
+	case css.URLToken:
+		return lc.handleURLToken(text)
+	default:
+		// unexpected, go back to regular handling
+		lc.pushBack()
+		return nil
+	}
 }
 
 func (lc *cssRewriter) handleURLToken(text []byte) error {

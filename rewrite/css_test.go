@@ -53,9 +53,16 @@ func TestCSS(t *testing.T) {
 			skip:   "not supported by parse library",
 		},
 		{
-			name:   "import string",
-			input:  "@import \"another.css\";",
-			output: "@import \"https://example.net/newimg.png\";",
+			name:  "import string",
+			input: "@import \"another.css\" print; body { background: url(\"http://example.com/img.png\"); }",
+			output: "@import \"https://example.net/newimg.png\" print; " +
+				"body { background: url(\"https://example.net/newimg.png\"); }",
+		},
+		{
+			name:  "import url",
+			input: "@import url(\"another.css\") print; body { background: url(\"http://example.com/img.png\"); }",
+			output: "@import url(\"https://example.net/newimg.png\") print; " +
+				"body { background: url(\"https://example.net/newimg.png\"); }",
 		},
 	}
 	for _, test := range tests {
@@ -68,7 +75,7 @@ func TestCSS(t *testing.T) {
 			rewriter := func(url URL) (string, error) {
 				return "", ErrNotModified
 			}
-			err := CSS(parse.NewInputString(test.input), &sb, rewriter)
+			err := CSS(parse.NewInputString(test.input), &sb, rewriter, false)
 			if assert.NoError(t, err) {
 				assert.Equal(t, test.input, sb.String())
 			}
@@ -81,7 +88,7 @@ func TestCSS(t *testing.T) {
 			rewriter := func(url URL) (string, error) {
 				return "https://example.net/newimg.png", nil
 			}
-			err := CSS(parse.NewInputString(test.input), &sb, rewriter)
+			err := CSS(parse.NewInputString(test.input), &sb, rewriter, false)
 			if assert.NoError(t, err) {
 				assert.Equal(t, test.output, sb.String())
 			}
