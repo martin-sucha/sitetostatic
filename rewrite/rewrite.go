@@ -28,4 +28,5 @@ const (
 	URLTypeUnknown URLType = iota
 	URLTypeBase
 	URLTypeOpenGraph
+	URLTypeCSS
 )
