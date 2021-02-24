@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"crypto/sha256"
 	"encoding/base32"
 	"encoding/binary"
 	"encoding/json"
@@ -37,7 +38,7 @@ func New(path string) *Repository {
 	return &Repository{path: path}
 }
 
-const binaryHeaderSize = 12
+const binaryHeaderSize = 8 + sha256.Size
 
 func (r *Repository) Store(h *DocumentHeader, data io.Reader) (outErr error) {
 	filename := keyToFilename(h.Key)
@@ -77,7 +78,7 @@ func (r *Repository) Store(h *DocumentHeader, data io.Reader) (outErr error) {
 	if err != nil {
 		return err
 	}
-	hasher := crc32.NewIEEE()
+	hasher := sha256.New()
 	_, err = io.Copy(f, io.TeeReader(data, hasher))
 	if err != nil {
 		return err
@@ -86,7 +87,7 @@ func (r *Repository) Store(h *DocumentHeader, data io.Reader) (outErr error) {
 	if err != nil {
 		return err
 	}
-	binary.LittleEndian.PutUint32(binaryHeader[8:12], hasher.Sum32())
+	hasher.Sum(binaryHeader[8:8:binaryHeaderSize])
 	_, err = f.Write(binaryHeader[:])
 	if err != nil {
 		return err
