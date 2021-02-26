@@ -57,6 +57,8 @@ func (lc *html5Rewriter) processTag(currentTag []byte) error {
 			}
 			return baseHrefAttribute
 		})
+	case bytes.Equal(currentTag, []byte("style")):
+		return lc.processStyleTag(currentTag)
 	default:
 		return lc.rewriteAttributes(currentTag, findHandler)
 	}
@@ -140,6 +142,36 @@ func (lc *html5Rewriter) processMeta() error {
 	return err
 }
 
+func (lc *html5Rewriter) processStyleTag(currentTag []byte) error {
+	err := lc.rewriteAttributes(currentTag, findHandler)
+	if err != nil {
+		return err
+	}
+	for {
+		tt, _ := lc.next()
+		if tt == html.ErrorToken {
+			return lc.err()
+		}
+		switch tt {
+		case html.StartTagCloseToken:
+			currentTag := lc.text()
+			err := lc.copy()
+			if err != nil {
+				return err
+			}
+			err = lc.processTag(currentTag)
+			if err != nil {
+				return err
+			}
+		default:
+			err := lc.copy()
+			if err != nil {
+				return err
+			}
+		}
+	}
+}
+
 type metaFlag uint8
 
 const (
@@ -170,7 +202,7 @@ func (lc *html5Rewriter) readAttributes() ([]attributeToken, []byte, error) {
 }
 
 // rewriteAttributes rewrites tag's attributes in place.
-func (lc *html5Rewriter) rewriteAttributes(tagName []byte, findHandlerFunc findHandlerFunc) error {
+func (lc *html5Rewriter) rewriteAttributes(tagName []byte, findHandlerFunc findHandlerFunc) (html.TokenType, error) {
 	for {
 		tt, data := lc.next()
 		switch tt {
@@ -191,14 +223,14 @@ func (lc *html5Rewriter) rewriteAttributes(tagName []byte, findHandlerFunc findH
 			}
 			err := attr.rewrite(lc, handler)
 			if err != nil {
-				return err
+				return tt, err
 			}
 		case html.StartTagCloseToken, html.StartTagVoidToken:
-			return lc.copy()
+			return tt, lc.copy()
 		case html.ErrorToken:
-			return lc.err()
+			return tt, lc.err()
 		default:
-			return fmt.Errorf("unexpected token: %s", tt.String())
+			return tt, fmt.Errorf("unexpected token: %s", tt.String())
 		}
 	}
 }
