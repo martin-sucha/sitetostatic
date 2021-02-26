@@ -341,11 +341,38 @@ func (at *attributeToken) rewrite(lc *html5Rewriter, handler attrHandler) error 
 	case err != nil:
 		return err
 	}
-	newBytes := []byte(stdhtml.EscapeString(newString))
+	err = multiWrite(lc.w, at.data[0:len(at.data)-len(at.attrValue)], []byte{outputQuoteType})
+	if err != nil {
+		return err
+	}
 
-	return multiWrite(lc.w, at.data[0:len(at.data)-len(at.attrValue)], []byte{outputQuoteType}, newBytes,
-		[]byte{outputQuoteType})
+	escaper := htmlAttributeQuoteEscaper
+	if outputQuoteType == '\'' {
+		escaper = htmlAttributeAposEscaper
+	}
+
+	_, err = escaper.WriteString(lc.w, newString)
+	if err != nil {
+		return err
+	}
+
+	_, err = lc.w.Write([]byte{outputQuoteType})
+	return err
 }
+
+var htmlAttributeAposEscaper = strings.NewReplacer(
+	`&`, "&amp;",
+	`'`, "&#39;", // "&#39;" is shorter than "&apos;" and apos was not in HTML until HTML5.
+	`<`, "&lt;",
+	`>`, "&gt;",
+)
+
+var htmlAttributeQuoteEscaper = strings.NewReplacer(
+	`&`, "&amp;",
+	`<`, "&lt;",
+	`>`, "&gt;",
+	`"`, "&#34;", // "&#34;" is shorter than "&quot;".
+)
 
 func multiWrite(w io.Writer, bufs ...[]byte) error {
 	for _, buf := range bufs {

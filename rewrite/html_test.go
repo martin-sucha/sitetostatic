@@ -97,8 +97,8 @@ func TestHTML5(t *testing.T) {
 		},
 		{
 			name:   "rewrite multiple attributes",
-			input:  "<html   ><body><a data=\"test\" href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
-			output: "<html   ><body><a data=\"test\" href=\"1&amp;.HTML\">1</a><a href='2.HTML'>1</a></body></html>",
+			input:  "<html   ><body><a data=\"te'st\" href=\"1&amp;.html\">1</a><a href='2.\"html'>1</a></body></html>",
+			output: "<html   ><body><a data=\"te'st\" href=\"1&amp;.HTML\">1</a><a href='2.\"HTML'>1</a></body></html>",
 			urlRewriter: func(url URL) (string, error) {
 				return strings.ToUpper(url.Value), nil
 			},
