@@ -177,7 +177,11 @@ func (lc *html5Rewriter) rewriteAttributes(tagName []byte, findHandlerFunc findH
 		case html.AttributeToken:
 			handler := findHandlerFunc(tagName, lc.text())
 			if handler == nil {
-				return lc.copy()
+				err := lc.copy()
+				if err != nil {
+					return err
+				}
+				continue
 			}
 			attr := attributeToken{
 				data:      data,

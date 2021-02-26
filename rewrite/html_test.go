@@ -96,6 +96,15 @@ func TestHTML5(t *testing.T) {
 			err: "",
 		},
 		{
+			name:   "rewrite multiple attributes",
+			input:  "<html   ><body><a data=\"test\" href=\"1&amp;.html\">1</a><a href='2.html'>1</a></body></html>",
+			output: "<html   ><body><a data=\"test\" href=\"1&amp;.HTML\">1</a><a href='2.HTML'>1</a></body></html>",
+			urlRewriter: func(url URL) (string, error) {
+				return strings.ToUpper(url.Value), nil
+			},
+			err: "",
+		},
+		{
 			name:       "xhtml verbatim",
 			inputFile:  "testdata/xhtml1.html",
 			outputFile: "testdata/xhtml1.html",
