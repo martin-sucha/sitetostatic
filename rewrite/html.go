@@ -33,26 +33,9 @@ func HTML5(input *parse.Input, w io.Writer, urlRewriter URLRewriter) error {
 			if err != nil {
 				return err
 			}
-			if bytes.Equal(currentTag, []byte("meta")) {
-				err := lc.processMeta()
-				if err != nil {
-					return err
-				}
-			} else if bytes.Equal(currentTag, []byte("base")) {
-				err := rewriteAttributes(&lc, currentTag, func(tagName, attrName []byte) attrHandler {
-					if !bytes.Equal(attrName, []byte("href")) {
-						return nil
-					}
-					return baseHrefAttribute
-				})
-				if err != nil {
-					return err
-				}
-			} else {
-				err := rewriteAttributes(&lc, currentTag, findHandler)
-				if err != nil {
-					return err
-				}
+			err = lc.processTag(currentTag)
+			if err != nil {
+				return err
 			}
 		default:
 			err := lc.copy()
@@ -60,6 +43,22 @@ func HTML5(input *parse.Input, w io.Writer, urlRewriter URLRewriter) error {
 				return err
 			}
 		}
+	}
+}
+
+func (lc *html5Rewriter) processTag(currentTag []byte) error {
+	switch {
+	case bytes.Equal(currentTag, []byte("meta")):
+		return lc.processMeta()
+	case bytes.Equal(currentTag, []byte("base")):
+		return lc.rewriteAttributes(currentTag, func(tagName, attrName []byte) attrHandler {
+			if !bytes.Equal(attrName, []byte("href")) {
+				return nil
+			}
+			return baseHrefAttribute
+		})
+	default:
+		return lc.rewriteAttributes(currentTag, findHandler)
 	}
 }
 
@@ -71,7 +70,7 @@ func ignoreEOF(err error) error {
 }
 
 func (lc *html5Rewriter) processMeta() error {
-	attrs, closeTagRaw, err := readAttributes(lc)
+	attrs, closeTagRaw, err := lc.readAttributes()
 	if err != nil {
 		return err
 	}
@@ -148,7 +147,7 @@ const (
 	metaFlagItemProp
 )
 
-func readAttributes(lc *html5Rewriter) ([]attributeToken, []byte, error) {
+func (lc *html5Rewriter) readAttributes() ([]attributeToken, []byte, error) {
 	attributes := make([]attributeToken, 0, 10)
 	for {
 		tt, data := lc.next()
@@ -171,7 +170,7 @@ func readAttributes(lc *html5Rewriter) ([]attributeToken, []byte, error) {
 }
 
 // rewriteAttributes rewrites tag's attributes in place.
-func rewriteAttributes(lc *html5Rewriter, tagName []byte, findHandlerFunc findHandlerFunc) error {
+func (lc *html5Rewriter) rewriteAttributes(tagName []byte, findHandlerFunc findHandlerFunc) error {
 	for {
 		tt, data := lc.next()
 		switch tt {
