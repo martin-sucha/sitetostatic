@@ -116,7 +116,7 @@ func TestHTML5(t *testing.T) {
 		{
 			name:   "style attribute",
 			input:  "<html><body style=\"background: url('a.png')\"></body></html>",
-			output: "<html><body style=\"background: url(&#34;A.PNG&#34;)\"></body></html>",
+			output: "<html><body style=\"background: url('A.PNG')\"></body></html>",
 			urlRewriter: func(url URL) (string, error) {
 				return strings.ToUpper(url.Value), nil
 			},

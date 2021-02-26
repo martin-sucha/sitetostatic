@@ -122,7 +122,7 @@ func (lc *cssRewriter) processImport() error {
 	case css.ErrorToken:
 		return lc.err()
 	case css.StringToken:
-		value, size, err := cssUnescapeString(text)
+		value, size, quote, err := cssUnescapeString(text)
 		if err != nil {
 			return err
 		}
@@ -139,7 +139,7 @@ func (lc *cssRewriter) processImport() error {
 		case err != nil:
 			return err
 		}
-		escaped, err := cssEscapeString(newValue)
+		escaped, err := cssEscapeString(newValue, quote)
 		if err != nil {
 			return err
 		}
@@ -173,14 +173,16 @@ func (lc *cssRewriter) handleURLToken(text []byte) error {
 	}
 	var urlEndIndex int
 	var urlValue string
+	var quote rune
 	if text[urlStartIndex] == '"' || text[urlStartIndex] == '\'' {
 		// quoted string
-		unescaped, size, err := cssUnescapeString(text[urlStartIndex:])
+		unescaped, size, origQuote, err := cssUnescapeString(text[urlStartIndex:])
 		if err != nil {
 			return err
 		}
 		urlEndIndex = urlStartIndex + size
 		urlValue = unescaped
+		quote = origQuote
 	} else {
 		// unquoted url
 		urlEndIndex = len(text) - 1
@@ -188,6 +190,7 @@ func (lc *cssRewriter) handleURLToken(text []byte) error {
 			urlEndIndex--
 		}
 		urlValue = string(text[urlStartIndex:urlEndIndex])
+		quote = '"'
 	}
 	newURL, err := lc.urlRewriter(URL{
 		Value: urlValue,
@@ -199,7 +202,7 @@ func (lc *cssRewriter) handleURLToken(text []byte) error {
 	case err != nil:
 		return err
 	default:
-		escaped, err := cssEscapeString(newURL)
+		escaped, err := cssEscapeString(newURL, quote)
 		if err != nil {
 			return err
 		}
@@ -207,11 +210,12 @@ func (lc *cssRewriter) handleURLToken(text []byte) error {
 	}
 }
 
-func cssEscapeString(value string) ([]byte, error) {
+// cssEscapeString using the quote type (either '\'' or '"')
+func cssEscapeString(value string, quote rune) ([]byte, error) {
 	// https://drafts.csswg.org/css-syntax-3/#consume-string-token
 	var b bytes.Buffer
 	b.Grow(len(value))
-	b.WriteRune('"')
+	b.WriteRune(quote)
 	idx := 0
 Loop:
 	for {
@@ -223,7 +227,7 @@ Loop:
 		case r == utf8.RuneError && size == 1:
 			// Invalid utf8 data
 			return nil, fmt.Errorf("css: escape string: invalid utf8 data")
-		case r == '\n' || r == '"' || r == '\\':
+		case r == '\n' || r == quote || r == '\\':
 			// Needs escape.
 			b.WriteRune('\\')
 			b.WriteString(strconv.FormatInt(int64(r), 16))
@@ -234,17 +238,18 @@ Loop:
 		}
 		idx += size
 	}
-	b.WriteRune('"')
+	b.WriteRune(quote)
 	return b.Bytes(), nil
 }
 
 // cssUnescapeString returns unescaped string value and number of bytes consumed.
-func cssUnescapeString(data []byte) (string, int, error) {
+// the quote type of the string is returned in quote, either '\'' or '"'.
+func cssUnescapeString(data []byte) (unescaped string, consumed int, quote rune, err error) {
 	origData := data
 	// https://drafts.csswg.org/css-syntax-3/#consume-string-token
 	quote, size := utf8.DecodeRune(data)
 	if !(quote == '"' || quote == '\'') {
-		return "", 0, fmt.Errorf("unexpected rune instead of quote: %c", quote)
+		return "", 0, quote, fmt.Errorf("unexpected rune instead of quote: %c", quote)
 	}
 	data = data[size:]
 	var sb strings.Builder
@@ -253,18 +258,17 @@ func cssUnescapeString(data []byte) (string, int, error) {
 		data = data[size:]
 		switch {
 		case r == utf8.RuneError && size == 0:
-			return "", len(origData) - len(data), fmt.Errorf("unclosed string")
+			return "", len(origData) - len(data), quote, fmt.Errorf("unclosed string")
 		case r == utf8.RuneError && size == 1:
-			return "", len(origData) - len(data), fmt.Errorf("css: unescape string: invalid utf8 data")
+			return "", len(origData) - len(data), quote, fmt.Errorf("css: unescape string: invalid utf8 data")
 		case r == quote:
-			return sb.String(), len(origData) - len(data), nil
+			return sb.String(), len(origData) - len(data), quote, nil
 		case r == '\n':
-			return "", len(origData) - len(data), fmt.Errorf("css: unescape string: newline encountered")
+			return "", len(origData) - len(data), quote, fmt.Errorf("css: unescape string: newline encountered")
 		case r == '\\':
-			var err error
 			data, err = consumeEscape(data, &sb)
 			if err != nil {
-				return "", len(origData) - len(data), err
+				return "", len(origData) - len(data), quote, err
 			}
 		default:
 			sb.WriteRune(r)

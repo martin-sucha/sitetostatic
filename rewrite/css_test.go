@@ -33,7 +33,7 @@ func TestCSS(t *testing.T) {
 		{
 			name:   "quoted url single",
 			input:  "body { background: url('http://example.com/img.png'); }",
-			output: "body { background: url(\"https://example.net/newimg.png\"); }",
+			output: "body { background: url('https://example.net/newimg.png'); }",
 		},
 		{
 			name:   "quoted url with spaces",
