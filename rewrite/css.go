@@ -15,27 +15,6 @@ import (
 )
 
 func CSS(input *parse.Input, w io.Writer, rewriter URLRewriter, isInline bool) error {
-	//p := css.NewParser(input, isInline)
-	//for {
-	//	gt, tt, data := p.Next()
-	//	if gt == css.ErrorGrammar {
-	//		return ignoreEOF(p.Err())
-	//	}
-	//
-	//	switch gt {
-	//	case css.AtRuleGrammar:
-	//		if bytes.EqualFold(data, []byte("@import")) {
-	//			parse
-	//		} else {
-	//
-	//		}
-	//	}
-	//
-	//	fmt.Printf("%s %s %q\n", gt.String(), tt.String(), string(data))
-	//	for _, tok := range p.Values() {
-	//		fmt.Printf("  %s %q\n", tok.TokenType, tok.Data)
-	//	}
-	//}
 	l := css.NewLexer(input)
 	lc := &cssRewriter{
 		input:       input,
