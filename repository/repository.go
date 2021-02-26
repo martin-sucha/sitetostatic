@@ -38,10 +38,10 @@ type Repository struct {
 }
 
 type DocumentMetadata struct {
-	Key            string
-	DownloadedDate time.Time
-	URL            string
-	Headers        http.Header
+	Key                 string
+	DownloadStartedTime time.Time
+	URL                 string
+	Headers             http.Header
 }
 
 type Document struct {
@@ -122,6 +122,7 @@ func (r *Repository) Store(h *DocumentMetadata, bodyData io.Reader) (outErr erro
 	if err != nil {
 		return err
 	}
+	closed = true
 	return os.Rename(f.Name(), path.Join(r.path, filename))
 }
 

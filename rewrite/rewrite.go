@@ -1,6 +1,8 @@
 package rewrite
 
-import "errors"
+import (
+	"errors"
+)
 
 // ErrNotModified can be returned by URLRewriter to not modify the URL.
 var ErrNotModified = errors.New("not modified")

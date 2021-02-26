@@ -22,14 +22,12 @@ func HTML5(input *parse.Input, w io.Writer, urlRewriter URLRewriter) error {
 		urlRewriter: urlRewriter,
 	}
 	for {
-		tt, data := lc.next()
+		tt, _ := lc.next()
 		if tt == html.ErrorToken {
 			return ignoreEOF(lc.err())
 		}
-		fmt.Printf("%s %q\n", tt.String(), data)
 		switch tt {
 		case html.StartTagToken:
-			fmt.Printf("%q\n", data)
 			currentTag := lc.text()
 			err := lc.copy()
 			if err != nil {
