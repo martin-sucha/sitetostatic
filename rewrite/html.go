@@ -51,16 +51,18 @@ func (lc *html5Rewriter) processTag(currentTag []byte) error {
 	case bytes.Equal(currentTag, []byte("meta")):
 		return lc.processMeta()
 	case bytes.Equal(currentTag, []byte("base")):
-		return lc.rewriteAttributes(currentTag, func(tagName, attrName []byte) attrHandler {
+		_, err := lc.rewriteAttributes(currentTag, func(tagName, attrName []byte) attrHandler {
 			if !bytes.Equal(attrName, []byte("href")) {
 				return nil
 			}
 			return baseHrefAttribute
 		})
+		return err
 	case bytes.Equal(currentTag, []byte("style")):
 		return lc.processStyleTag(currentTag)
 	default:
-		return lc.rewriteAttributes(currentTag, findHandler)
+		_, err := lc.rewriteAttributes(currentTag, findHandler)
+		return err
 	}
 }
 
@@ -143,34 +145,49 @@ func (lc *html5Rewriter) processMeta() error {
 }
 
 func (lc *html5Rewriter) processStyleTag(currentTag []byte) error {
-	err := lc.rewriteAttributes(currentTag, findHandler)
+	tt, err := lc.rewriteAttributes(currentTag, findHandler)
 	if err != nil {
 		return err
 	}
+	if tt == html.StartTagVoidToken {
+		// <style /> element without content.
+		// While not technically valid HTML5, we don't need to stop parsing because of it, just there is no content.
+		return nil
+	}
 	for {
-		tt, _ := lc.next()
+		tt, data := lc.next()
 		if tt == html.ErrorToken {
 			return lc.err()
 		}
 		switch tt {
-		case html.StartTagCloseToken:
-			currentTag := lc.text()
-			err := lc.copy()
+		case html.EndTagToken:
+			if !bytes.Equal(lc.text(), []byte("style")) {
+				return fmt.Errorf("unexpected tag end %q", string(lc.text()))
+			}
+			return lc.copy()
+		case html.TextToken:
+			var buf bytes.Buffer
+			buf.Grow(len(data))
+			cssData := stdhtml.UnescapeString(string(data))
+			err := CSS(parse.NewInputString(cssData), &buf, lc.urlRewriter, false)
 			if err != nil {
 				return err
 			}
-			err = lc.processTag(currentTag)
+			_, err = textContentHTMLEscaper.WriteString(lc.w, buf.String())
 			if err != nil {
 				return err
 			}
 		default:
-			err := lc.copy()
-			if err != nil {
-				return err
-			}
+			return fmt.Errorf("style element can only contain text content")
 		}
 	}
 }
+
+var textContentHTMLEscaper = strings.NewReplacer(
+	`&`, "&amp;",
+	`<`, "&lt;",
+	`>`, "&gt;",
+)
 
 type metaFlag uint8
 
@@ -211,7 +228,7 @@ func (lc *html5Rewriter) rewriteAttributes(tagName []byte, findHandlerFunc findH
 			if handler == nil {
 				err := lc.copy()
 				if err != nil {
-					return err
+					return tt, err
 				}
 				continue
 			}
@@ -350,7 +367,11 @@ func tags(tagNames ...string) map[string]attrHandler {
 
 // findHandler returns handler for the attribute or nil.
 func findHandler(tagName, attrName []byte) attrHandler {
-	attr := attributeHandlers[string(attrName)]
+	sName := string(attrName)
+	if sName == "style" {
+		return styleAttribute
+	}
+	attr := attributeHandlers[sName]
 	if attr == nil {
 		return nil
 	}
@@ -524,4 +545,13 @@ func baseHrefAttribute(lc *html5Rewriter, attrValue string) (string, error) {
 		lc.newBaseURL = newBaseURL
 		return newBaseURL, nil
 	}
+}
+
+func styleAttribute(lc *html5Rewriter, attrValue string) (string, error) {
+	var sb strings.Builder
+	err := CSS(parse.NewInputString(attrValue), &sb, lc.urlRewriter, true)
+	if err != nil {
+		return "", err
+	}
+	return sb.String(), nil
 }

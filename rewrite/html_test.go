@@ -105,6 +105,24 @@ func TestHTML5(t *testing.T) {
 			err: "",
 		},
 		{
+			name:   "style element",
+			input:  "<html><head><style>@import \"a.html\"; body &gt; a { background: url(b.html) }</style></head></html>",
+			output: "<html><head><style>@import \"A.HTML\"; body &gt; a { background: url(\"B.HTML\") }</style></head></html>",
+			urlRewriter: func(url URL) (string, error) {
+				return strings.ToUpper(url.Value), nil
+			},
+			err: "",
+		},
+		{
+			name:   "style attribute",
+			input:  "<html><body style=\"background: url('a.png')\"></body></html>",
+			output: "<html><body style=\"background: url(&#34;A.PNG&#34;)\"></body></html>",
+			urlRewriter: func(url URL) (string, error) {
+				return strings.ToUpper(url.Value), nil
+			},
+			err: "",
+		},
+		{
 			name:       "xhtml verbatim",
 			inputFile:  "testdata/xhtml1.html",
 			outputFile: "testdata/xhtml1.html",
