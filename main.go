@@ -35,6 +35,10 @@ func main() {
 						Name:  "allow-root",
 						Usage: "URL prefixes to allow",
 					},
+					&cli.StringFlag{
+						Name:  "user-agent",
+						Usage: "User-Agent string to use",
+					},
 				},
 			},
 			{
@@ -116,6 +120,7 @@ func doScrape(c *cli.Context) error {
 			}
 			return false
 		},
+		UserAgent: c.String("user-agent"),
 	}
 	sc.Scrape(initialURLs, 10)
 	return nil

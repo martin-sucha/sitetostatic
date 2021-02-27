@@ -29,6 +29,7 @@ type Scraper struct {
 	Limiter    *rate.Limiter
 	// FollowURL determines whether to scrape u or not.
 	FollowURL func(u *url.URL) bool
+	UserAgent string
 }
 
 func (s *Scraper) Scrape(initialURLs []*url.URL, workerCount int) {
@@ -94,7 +95,14 @@ func (s *Scraper) scrapeTask(t *task, newTasks, doneTasks chan<- *task) (errOut 
 		}
 		return originalCheckRedirect(req, via)
 	}
-	resp, err := client.Get(t.downloadURL.String())
+	req, err := http.NewRequest(http.MethodGet, t.downloadURL.String(), nil)
+	if err != nil {
+		return err
+	}
+	if s.UserAgent != "" {
+		req.Header.Set("User-Agent", s.UserAgent)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
