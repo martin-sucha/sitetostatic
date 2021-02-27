@@ -175,6 +175,9 @@ func canonicalURL(someURL *url.URL) string {
 	}
 
 	u.Host = joinHostPort(strings.ToLower(host), port)
+	if u.IsAbs() && u.Host != "" && u.Path == "" {
+		u.Path = "/"
+	}
 	return u.String()
 }
 

@@ -31,6 +31,9 @@ func Key(someURL *url.URL) string {
 		port = ""
 	}
 	u.Host = joinHostPort(strings.ToLower(host), port)
+	if u.IsAbs() && u.Host != "" && u.Path == "" {
+		u.Path = "/"
+	}
 
 	var parts []queryParam
 	for k, v := range u.Query() {
