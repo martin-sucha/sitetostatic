@@ -95,14 +95,14 @@ func (s *Scraper) scrapeTask(t *task, newTasks, doneTasks chan<- *task) (errOut 
 	rewriter := func(u rewrite.URL) (string, error) {
 		referenceURL, err := url.Parse(strings.TrimSpace(u.Value))
 		if err != nil {
-			log.Printf("parsing url in document %q: %v", t.downloadURL.String(), err)
+			log.Printf("parsing url in document %q: %v", resp.Request.URL.String(), err)
 			return "", nil
 		}
-		baseURL := t.downloadURL
+		baseURL := resp.Request.URL
 		if u.Base != "" {
 			baseURL, err = url.Parse(u.Base)
 			if err != nil {
-				return "", fmt.Errorf("parsing base url in document %q: %v", t.downloadURL.String(), err)
+				return "", fmt.Errorf("parsing base url in document %q: %v", resp.Request.URL.String(), err)
 			}
 		}
 		absoluteURL := baseURL.ResolveReference(referenceURL)
