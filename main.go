@@ -103,12 +103,17 @@ func doList(c *cli.Context) error {
 	switch format {
 	case "", "native":
 		repo := repository.New(repoPath)
-		documents, err := repo.List()
+		entries, err := repo.List()
 		if err != nil {
 			return err
 		}
-		for _, doc := range documents {
+		for _, entry := range entries {
+			doc, err := entry.Open()
+			if err != nil {
+				return err
+			}
 			fmt.Println(doc.Metadata.URL)
+			_ = doc.Close()
 		}
 	case "httrack":
 		cache, err := httrack.OpenCache(repoPath)

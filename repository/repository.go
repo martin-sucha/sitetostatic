@@ -53,6 +53,10 @@ type Document struct {
 	bodyOffset int64
 }
 
+func (d *Document) Close() error {
+	return d.f.Close()
+}
+
 func New(path string) *Repository {
 	return &Repository{path: path}
 }
@@ -197,7 +201,16 @@ func openDocument(f *os.File) (*Document, error) {
 	return doc, nil
 }
 
-func (r *Repository) List() ([]*Document, error) {
+type Entry struct {
+	r        *Repository
+	filename string
+}
+
+func (e *Entry) Open() (*Document, error) {
+	return openDocumentPath(path.Join(e.r.path, e.filename))
+}
+
+func (r *Repository) List() ([]Entry, error) {
 	f, err := os.Open(r.path)
 	if err != nil {
 		return nil, err
@@ -210,18 +223,17 @@ func (r *Repository) List() ([]*Document, error) {
 	if closeErr != nil {
 		return nil, closeErr
 	}
-	documents := make([]*Document, 0, len(names))
+	entries := make([]Entry, 0, len(names))
 	for _, name := range names {
 		if strings.HasPrefix(name, "tmp-") {
 			continue
 		}
-		doc, err := openDocumentPath(path.Join(r.path, name))
-		if err != nil {
-			return nil, err
-		}
-		documents = append(documents, doc)
+		entries = append(entries, Entry{
+			r:        r,
+			filename: name,
+		})
 	}
-	return documents, nil
+	return entries, nil
 }
 
 func keyToFilename(key string) string {
