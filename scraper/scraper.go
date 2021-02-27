@@ -3,6 +3,7 @@ package scraper
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -76,16 +77,37 @@ func (s *Scraper) scrapeTask(t *task, newTasks, doneTasks chan<- *task) (errOut 
 		return err
 	}
 	startTime := time.Now()
-	resp, err := s.Client.Get(t.downloadURL.String())
+	client := s.Client
+	originalCheckRedirect := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.Response != nil {
+			err := s.processResponse(req.Response, startTime, newTasks)
+			if err != nil {
+				return err
+			}
+		}
+		if originalCheckRedirect == nil {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		}
+		return originalCheckRedirect(req, via)
+	}
+	resp, err := client.Get(t.downloadURL.String())
 	if err != nil {
 		return err
 	}
+	return s.processResponse(resp, startTime, newTasks)
+}
+
+func (s *Scraper) processResponse(resp *http.Response, startTime time.Time, newTasks chan<- *task) error {
 	supportedContentType := false
 	mediatype, params, err := mime.ParseMediaType(resp.Header.Get("content-type"))
 	if err == nil {
 		supportedContentType = isSupportedMediaType(mediatype, params)
 	}
-	data, err := s.storeResponse(t, resp, startTime, supportedContentType)
+	data, err := s.storeResponse(resp, startTime, supportedContentType)
 	if err != nil {
 		return err
 	}
@@ -135,7 +157,7 @@ func isSupportedMediaType(mediaType string, params map[string]string) bool {
 	return params["charset"] == "" || strings.EqualFold(params["charset"], "utf-8")
 }
 
-func (s *Scraper) storeResponse(t *task, resp *http.Response, startTime time.Time,
+func (s *Scraper) storeResponse(resp *http.Response, startTime time.Time,
 	loadToMemory bool) (dataOut []byte, errOut error) {
 	defer func() {
 		closeErr := resp.Body.Close()
@@ -144,9 +166,9 @@ func (s *Scraper) storeResponse(t *task, resp *http.Response, startTime time.Tim
 		}
 	}()
 	meta := &repository.DocumentMetadata{
-		Key:                 t.key,
+		Key:                 repository.Key(resp.Request.URL),
 		DownloadStartedTime: startTime,
-		URL:                 t.downloadURL.String(),
+		URL:                 resp.Request.URL.String(),
 		Headers:             resp.Header,
 	}
 	var buf bytes.Buffer
