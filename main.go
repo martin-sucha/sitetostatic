@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"site-to-static/httrack"
@@ -13,6 +15,7 @@ import (
 	"site-to-static/urlnorm"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/pmezard/go-difflib/difflib"
 
@@ -69,6 +72,18 @@ func main() {
 					},
 					&cli.StringFlag{
 						Name:  "b-format",
+						Usage: "either native or httrack",
+					},
+				},
+			},
+			{
+				Name:      "show",
+				Usage:     "show url stored in a repository",
+				ArgsUsage: "repopath url",
+				Action:    doShow,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "format",
 						Usage: "either native or httrack",
 					},
 				},
@@ -379,5 +394,67 @@ func getEntries(repoPath, format string) ([]entry, error) {
 		return out, nil
 	default:
 		return nil, fmt.Errorf("unsupported repo format: %s", format)
+	}
+}
+
+func doShow(c *cli.Context) error {
+	if c.Args().Len() < 2 {
+		return fmt.Errorf("not enough arguments")
+	}
+	repoPath := c.Args().First()
+	u := c.Args().Get(1)
+	parsedURL, err := url.Parse(u)
+	if err != nil {
+		return err
+	}
+	if !parsedURL.IsAbs() {
+		return fmt.Errorf("must be absolute url")
+	}
+	switch c.String("format") {
+	case "", "native":
+		repo := repository.New(repoPath)
+		doc, err := repo.Load(repository.Key(parsedURL))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("URL: %s\n", doc.Metadata.URL)
+		fmt.Printf("Key: %s\n", doc.Metadata.Key)
+		fmt.Printf("Download started: %s\n", doc.Metadata.DownloadStartedTime.Format(time.RFC3339))
+		fmt.Println()
+		resp := &http.Response{
+			Status:        "OK",       // TODO
+			StatusCode:    200,        // TODO
+			Proto:         "HTTP/1.0", // TODO
+			Header:        doc.Metadata.Headers,
+			Body:          io.NopCloser(doc.Body()),
+			ContentLength: doc.BodySize,
+			Trailer:       nil, // TODO
+		}
+		data, err := httputil.DumpResponse(resp, true)
+		if err != nil {
+			return err
+		}
+		closeErr := doc.Close()
+		_, err = os.Stdout.Write(data)
+		if err != nil {
+			return err
+		}
+		return closeErr
+	case "httrack":
+		cache, err := httrack.OpenCache(repoPath)
+		if err != nil {
+			return err
+		}
+		e := cache.FindEntry(func(e *httrack.Entry) bool {
+			return e.URL == u
+		})
+		if e == nil {
+			return fmt.Errorf("%q not found", u)
+		}
+		fmt.Printf("URL: %s\n", e.URL)
+		fmt.Printf("Extra:\n%s\n", e.Extra)
+		return nil
+	default:
+		return fmt.Errorf("unsupported format: %s", c.String("format"))
 	}
 }

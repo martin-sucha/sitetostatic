@@ -42,6 +42,17 @@ func (c *Cache) Close() error {
 	return c.closer.Close()
 }
 
+// FindEntry returns the first Entry for which fn returns true.
+// Returns nil if fn returns false for all entries.
+func (c *Cache) FindEntry(fn func(e *Entry) bool) *Entry {
+	for i := range c.Entries {
+		if fn(c.Entries[i]) {
+			return c.Entries[i]
+		}
+	}
+	return nil
+}
+
 func loadCache(z *zip.Reader, closer io.Closer) (*Cache, error) {
 	cache := &Cache{
 		z:       z,
