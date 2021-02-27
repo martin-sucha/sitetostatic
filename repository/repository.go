@@ -50,7 +50,10 @@ type Document struct {
 	BodySHA256 [sha256.Size]byte
 	BodySize   int64
 	f          *os.File
-	bodyOffset int64
+}
+
+func (d *Document) Body() *io.SectionReader {
+	return io.NewSectionReader(d.f, binaryHeaderSize, d.BodySize)
 }
 
 func (d *Document) Close() error {

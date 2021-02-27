@@ -54,6 +54,7 @@ func loadCache(z *zip.Reader, closer io.Closer) (*Cache, error) {
 			return nil, err
 		}
 		cache.Entries = append(cache.Entries, &Entry{
+			zf:    f,
 			URL:   f.Name,
 			Extra: string(extra),
 		})
@@ -64,4 +65,9 @@ func loadCache(z *zip.Reader, closer io.Closer) (*Cache, error) {
 type Entry struct {
 	URL   string
 	Extra string
+	zf    *zip.File
+}
+
+func (e *Entry) Body() (io.ReadCloser, error) {
+	return e.zf.Open()
 }
