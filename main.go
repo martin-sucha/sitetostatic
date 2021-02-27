@@ -274,19 +274,23 @@ func doDiff(c *cli.Context) error {
 			if bytes.Equal(aData, bData) {
 				fmt.Printf("equal: %s\n", entriesA[i].CanonicalURL())
 			} else {
-				fmt.Printf("different: %s\n", entriesA[i].CanonicalURL())
-				err = difflib.WriteUnifiedDiff(os.Stdout, difflib.UnifiedDiff{
-					A:        splitLines(aData),
-					FromFile: "a:" + entriesA[i].CanonicalURL(),
-					B:        splitLines(bData),
-					ToFile:   "b:" + entriesB[j].CanonicalURL(),
-					Eol:      "\n",
-				})
-				if err != nil {
-					return err
+				if isBinaryData(aData) || isBinaryData(bData) {
+					fmt.Printf("binary files different (%d bytes vs %d bytes): %s\n",
+						len(aData), len(bData), entriesA[i].CanonicalURL())
+				} else {
+					err = difflib.WriteUnifiedDiff(os.Stdout, difflib.UnifiedDiff{
+						A:        splitLines(aData),
+						FromFile: "a:" + entriesA[i].CanonicalURL(),
+						B:        splitLines(bData),
+						ToFile:   "b:" + entriesB[j].CanonicalURL(),
+						Eol:      "\n",
+					})
+					if err != nil {
+						return err
+					}
+					fmt.Println()
+					fmt.Println()
 				}
-				fmt.Println()
-				fmt.Println()
 			}
 			i++
 			j++
@@ -299,6 +303,15 @@ func doDiff(c *cli.Context) error {
 		}
 	}
 	return nil
+}
+
+func isBinaryData(data []byte) bool {
+	for i := 0; i < len(data); i++ {
+		if data[i] == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func splitLines(data []byte) []string {
