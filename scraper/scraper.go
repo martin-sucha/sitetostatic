@@ -173,20 +173,30 @@ func (s *Scraper) storeResponse(resp *http.Response, startTime time.Time,
 			errOut = closeErr
 		}
 	}()
-	meta := &repository.DocumentMetadata{
-		Key:                 repository.Key(resp.Request.URL),
-		DownloadStartedTime: startTime,
-		URL:                 resp.Request.URL.String(),
-		Headers:             resp.Header,
-	}
+
 	var buf bytes.Buffer
 	var bodyReader io.Reader = resp.Body
 	if loadToMemory {
 		bodyReader = io.TeeReader(bodyReader, &buf)
 	}
-	err := s.Repository.Store(meta, bodyReader)
+	dw, err := s.Repository.NewWriter()
 	if err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+	_, err = io.Copy(dw, resp.Body)
+	meta := &repository.DocumentMetadata{
+		Key:                 repository.Key(resp.Request.URL),
+		DownloadStartedTime: startTime,
+		URL:                 resp.Request.URL.String(),
+		Headers:             resp.Header,
+		Trailers:            resp.Trailer,
+		Proto:               resp.Proto,
+		Status:              resp.Status,
+		StatusCode:          resp.StatusCode,
+	}
+	closeErr := dw.Close(meta)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), closeErr
 }

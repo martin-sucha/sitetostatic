@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"hash/crc32"
 	"io"
 	"io/ioutil"
@@ -42,7 +43,11 @@ type DocumentMetadata struct {
 	Key                 string
 	DownloadStartedTime time.Time
 	URL                 string
+	Status              string
+	StatusCode          int
+	Proto               string
 	Headers             http.Header
+	Trailers            http.Header
 }
 
 type Document struct {
@@ -66,72 +71,95 @@ func New(path string) *Repository {
 
 const binaryHeaderSize = 52
 
-func (r *Repository) Store(h *DocumentMetadata, bodyData io.Reader) (outErr error) {
-	filename := keyToFilename(h.Key)
-	f, err := ioutil.TempFile(r.path, "tmp-"+filename)
+func (r *Repository) NewWriter() (dwOut *DocumentWriter, outErr error) {
+	f, err := ioutil.TempFile(r.path, "tmp-")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	closed := false
 	defer func() {
-		var closeErr error
-		if !closed {
-			closeErr = f.Close()
-		}
-		if outErr == nil {
-			outErr = closeErr
-		} else {
-			// TODO: log error
+		if outErr != nil {
+			// TODO: log errors
+			_ = f.Close()
 			_ = os.Remove(f.Name())
 		}
 	}()
 
 	_, err = f.Seek(binaryHeaderSize, 0)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	bodyHasher := sha256.New()
-	bodyWrittenBytes, err := io.Copy(f, io.TeeReader(bodyData, bodyHasher))
+	dw := &DocumentWriter{
+		r:          r,
+		f:          f,
+		bodyHasher: sha256.New(),
+	}
+	return dw, nil
+}
+
+type DocumentWriter struct {
+	r                *Repository
+	f                *os.File
+	bodyHasher       hash.Hash
+	bodyWrittenBytes uint64
+}
+
+func (d *DocumentWriter) Write(b []byte) (n int, err error) {
+	_, err2 := d.bodyHasher.Write(b)
+	if err2 != nil {
+		return 0, err2
+	}
+	n, err = d.f.Write(b)
+	d.bodyWrittenBytes += uint64(n)
+	return
+}
+
+func (d *DocumentWriter) Close(metadata *DocumentMetadata) error {
+	closed := false
+	defer func() {
+		if !closed {
+			// TODO: log errors
+			_ = d.f.Close()
+			_ = os.Remove(d.f.Name())
+		}
+	}()
+
+	jsonData, err := json.Marshal(metadata)
 	if err != nil {
 		return err
-	}
-
-	jsonData, err := json.Marshal(h)
-	if err != nil {
-		return
 	}
 	if len(jsonData) > math.MaxUint32 {
 		return fmt.Errorf("json data size overflow: %d bytes", len(jsonData))
 	}
 
-	_, err = f.Write(jsonData)
+	_, err = d.f.Write(jsonData)
 	if err != nil {
 		return err
 	}
 
-	_, err = f.Seek(0, 0)
+	_, err = d.f.Seek(0, 0)
 	if err != nil {
 		return err
 	}
 
 	var binaryHeader [binaryHeaderSize]byte
 	copy(binaryHeader[0:4], "STS1")
-	binary.LittleEndian.PutUint64(binaryHeader[4:12], uint64(bodyWrittenBytes))
-	bodyHasher.Sum(binaryHeader[12:12:44])
+	binary.LittleEndian.PutUint64(binaryHeader[4:12], d.bodyWrittenBytes)
+	d.bodyHasher.Sum(binaryHeader[12:12:44])
 	binary.LittleEndian.PutUint32(binaryHeader[44:48], uint32(len(jsonData)))
 	binary.LittleEndian.PutUint32(binaryHeader[48:52], crc32.ChecksumIEEE(jsonData))
 
-	_, err = f.Write(binaryHeader[:])
+	_, err = d.f.Write(binaryHeader[:])
 	if err != nil {
 		return err
 	}
-	err = f.Close()
-	if err != nil {
-		return err
-	}
+	err = d.f.Close()
 	closed = true
-	return os.Rename(f.Name(), path.Join(r.path, filename))
+	if err != nil {
+		return err
+	}
+	filename := keyToFilename(metadata.Key)
+	return os.Rename(d.f.Name(), path.Join(d.r.path, filename))
 }
 
 func (r *Repository) Load(key string) (outDoc *Document, outErr error) {
