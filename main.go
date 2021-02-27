@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"site-to-static/httrack"
 	"site-to-static/repository"
 	"site-to-static/scraper"
 	"strings"
@@ -34,6 +35,12 @@ func main() {
 				Usage:     "list urls stored in a repository",
 				ArgsUsage: "repopath",
 				Action:    doList,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "format",
+						Usage: "either native or httrack",
+					},
+				},
 			},
 		},
 	}
@@ -91,14 +98,27 @@ func doList(c *cli.Context) error {
 	if c.Args().Len() < 1 {
 		return fmt.Errorf("not enough arguments")
 	}
+	format := c.String("format")
 	repoPath := c.Args().First()
-	repo := repository.New(repoPath)
-	documents, err := repo.List()
-	if err != nil {
-		return err
+	switch format {
+	case "", "native":
+		repo := repository.New(repoPath)
+		documents, err := repo.List()
+		if err != nil {
+			return err
+		}
+		for _, doc := range documents {
+			fmt.Println(doc.Metadata.URL)
+		}
+	case "httrack":
+		cache, err := httrack.OpenCache(repoPath)
+		if err != nil {
+			return err
+		}
+		for _, entry := range cache.Entries {
+			fmt.Println(entry.URL)
+		}
 	}
-	for _, doc := range documents {
-		fmt.Println(doc.Metadata.URL)
-	}
+
 	return nil
 }
