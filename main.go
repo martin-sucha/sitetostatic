@@ -29,6 +29,12 @@ func main() {
 					},
 				},
 			},
+			{
+				Name:      "list",
+				Usage:     "list urls stored in a repository",
+				ArgsUsage: "repopath",
+				Action:    doList,
+			},
 		},
 	}
 	err := app.Run(os.Args)
@@ -78,5 +84,21 @@ func doScrape(c *cli.Context) error {
 		},
 	}
 	sc.Scrape(initialURLs, 10)
+	return nil
+}
+
+func doList(c *cli.Context) error {
+	if c.Args().Len() < 1 {
+		return fmt.Errorf("not enough arguments")
+	}
+	repoPath := c.Args().First()
+	repo := repository.New(repoPath)
+	documents, err := repo.List()
+	if err != nil {
+		return err
+	}
+	for _, doc := range documents {
+		fmt.Println(doc.Metadata.URL)
+	}
 	return nil
 }

@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -127,7 +128,11 @@ func (r *Repository) Store(h *DocumentMetadata, bodyData io.Reader) (outErr erro
 }
 
 func (r *Repository) Load(key string) (outDoc *Document, outErr error) {
-	f, err := os.Open(path.Join(r.path, keyToFilename(key)))
+	return openDocumentPath(path.Join(r.path, keyToFilename(key)))
+}
+
+func openDocumentPath(filePath string) (outDoc *Document, outErr error) {
+	f, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
 	}
@@ -137,8 +142,16 @@ func (r *Repository) Load(key string) (outDoc *Document, outErr error) {
 			_ = f.Close()
 		}
 	}()
+	doc, err := openDocument(f)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %v", filePath, err)
+	}
+	return doc, nil
+}
+
+func openDocument(f *os.File) (*Document, error) {
 	var binaryHeader [binaryHeaderSize]byte
-	_, err = io.ReadFull(f, binaryHeader[:])
+	_, err := io.ReadFull(f, binaryHeader[:])
 	switch {
 	case errors.Is(err, io.EOF):
 		return nil, io.ErrUnexpectedEOF
@@ -182,6 +195,33 @@ func (r *Repository) Load(key string) (outDoc *Document, outErr error) {
 	}
 
 	return doc, nil
+}
+
+func (r *Repository) List() ([]*Document, error) {
+	f, err := os.Open(r.path)
+	if err != nil {
+		return nil, err
+	}
+	names, err := f.Readdirnames(-1)
+	closeErr := f.Close()
+	if err != nil {
+		return nil, err
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	documents := make([]*Document, 0, len(names))
+	for _, name := range names {
+		if strings.HasPrefix(name, "tmp-") {
+			continue
+		}
+		doc, err := openDocumentPath(path.Join(r.path, name))
+		if err != nil {
+			return nil, err
+		}
+		documents = append(documents, doc)
+	}
+	return documents, nil
 }
 
 func keyToFilename(key string) string {
