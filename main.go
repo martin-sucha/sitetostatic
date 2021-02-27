@@ -40,6 +40,10 @@ func main() {
 						Name:  "format",
 						Usage: "either native or httrack",
 					},
+					&cli.BoolFlag{
+						Name:  "canonical",
+						Usage: "print canonical URLs",
+					},
 				},
 			},
 		},
@@ -99,6 +103,22 @@ func doList(c *cli.Context) error {
 		return fmt.Errorf("not enough arguments")
 	}
 	format := c.String("format")
+
+	printURLFunc := func(u string) error {
+		_, err := fmt.Println(u)
+		return err
+	}
+	if c.Bool("canonical") {
+		printURLFunc = func(u string) error {
+			parsedURL, err := url.Parse(u)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Println(canonicalURL(parsedURL))
+			return err
+		}
+	}
+
 	repoPath := c.Args().First()
 	switch format {
 	case "", "native":
@@ -112,8 +132,14 @@ func doList(c *cli.Context) error {
 			if err != nil {
 				return err
 			}
-			fmt.Println(doc.Metadata.URL)
-			_ = doc.Close()
+			err = printURLFunc(doc.Metadata.URL)
+			if err != nil {
+				return err
+			}
+			err = doc.Close()
+			if err != nil {
+				return err
+			}
 		}
 	case "httrack":
 		cache, err := httrack.OpenCache(repoPath)
@@ -121,9 +147,50 @@ func doList(c *cli.Context) error {
 			return err
 		}
 		for _, entry := range cache.Entries {
-			fmt.Println(entry.URL)
+			err = printURLFunc(entry.URL)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
+}
+
+// canonicalURL returns the canonical form of URL.
+func canonicalURL(someURL *url.URL) string {
+	// Per RFC3986, the canonical form of URL has:
+	//
+	//  - lowercase scheme
+	//  - lowercase host / address
+	//  - port omitted if default for scheme
+	//  - colon between host:port not specified if port is empty
+	u := new(url.URL)
+	*u = *someURL
+	u.Scheme = strings.ToLower(u.Scheme)
+	host := u.Hostname()
+	port := u.Port()
+	if (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		port = ""
+	}
+
+	u.Host = joinHostPort(strings.ToLower(host), port)
+	return u.String()
+}
+
+func joinHostPort(host, port string) string {
+	var sb strings.Builder
+	// Assume IPv6 address if host contains colon.
+	if strings.Contains(host, ":") {
+		sb.WriteString("[")
+		sb.WriteString(host)
+		sb.WriteString("]")
+	} else {
+		sb.WriteString(host)
+	}
+	if port != "" {
+		sb.WriteString(":")
+		sb.WriteString(port)
+	}
+	return sb.String()
 }
