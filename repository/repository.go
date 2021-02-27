@@ -156,6 +156,12 @@ func (r *Repository) Load(key string) (outDoc *Document, outErr error) {
 	copy(doc.BodySHA256[:], binaryHeader[12:44])
 
 	jsonDataSize := binary.LittleEndian.Uint32(binaryHeader[44:48])
+
+	_, err = f.Seek(binaryHeaderSize+doc.BodySize, 0)
+	if err != nil {
+		return nil, err
+	}
+
 	jsonData := make([]byte, jsonDataSize)
 	jsonChecksum := crc32.NewIEEE()
 	_, err = io.ReadFull(io.TeeReader(f, jsonChecksum), jsonData)
