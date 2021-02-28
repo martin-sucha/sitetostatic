@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -85,7 +86,18 @@ func processEntry(doc *repository.Document, outDir string) error {
 		if err != nil {
 			return err
 		}
-		return closeErr
+		if closeErr != nil {
+			return closeErr
+		}
+		mtime := doc.Metadata.DownloadStartedTime
+		if lastModified := doc.Metadata.Headers.Get("Last-Modified"); lastModified != "" {
+			parsedTime, err := http.ParseTime(lastModified)
+			if err != nil {
+				return err
+			}
+			mtime = parsedTime
+		}
+		return os.Chtimes(outputPath, mtime, mtime)
 	case 300 <= doc.Metadata.StatusCode && doc.Metadata.StatusCode <= 399:
 		redirectedURL := doc.Metadata.Headers.Get("Location")
 		parsedRedirectedURL, err := url.Parse(redirectedURL)
