@@ -3,6 +3,7 @@ module site-to-static
 go 1.15
 
 require (
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/stretchr/testify v1.7.0
 	github.com/tdewolff/parse/v2 v2.5.10
 	github.com/urfave/cli/v2 v2.3.0
