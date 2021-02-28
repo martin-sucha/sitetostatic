@@ -9,6 +9,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"site-to-static/files"
 	"site-to-static/httrack"
 	"site-to-static/repository"
 	"site-to-static/scraper"
@@ -87,6 +88,12 @@ func main() {
 						Usage: "either native or httrack",
 					},
 				},
+			},
+			{
+				Name:      "files",
+				Usage:     "copy files to directory",
+				ArgsUsage: "repopath outdir",
+				Action:    doFiles,
 			},
 		},
 	}
@@ -492,4 +499,14 @@ func doShow(c *cli.Context) error {
 	default:
 		return fmt.Errorf("unsupported format: %s", c.String("format"))
 	}
+}
+
+func doFiles(c *cli.Context) error {
+	if c.Args().Len() < 2 {
+		return fmt.Errorf("not enough arguments")
+	}
+	repoPath := c.Args().First()
+	outputPath := c.Args().Get(1)
+	repo := repository.New(repoPath)
+	return files.Generate(repo, outputPath)
 }
