@@ -183,7 +183,7 @@ func (s *Scraper) storeResponse(resp *http.Response, startTime time.Time,
 	if err != nil {
 		return nil, err
 	}
-	_, err = io.Copy(dw, resp.Body)
+	_, err = io.Copy(dw, bodyReader)
 	meta := &repository.DocumentMetadata{
 		Key:                 repository.Key(resp.Request.URL),
 		DownloadStartedTime: startTime,
