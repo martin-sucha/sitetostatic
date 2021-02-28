@@ -422,13 +422,13 @@ func doShow(c *cli.Context) error {
 		fmt.Printf("Download started: %s\n", doc.Metadata.DownloadStartedTime.Format(time.RFC3339))
 		fmt.Println()
 		resp := &http.Response{
-			Status:        "OK",       // TODO
-			StatusCode:    200,        // TODO
-			Proto:         "HTTP/1.0", // TODO
+			Status:        doc.Metadata.Status,
+			StatusCode:    doc.Metadata.StatusCode,
+			Proto:         doc.Metadata.Proto,
 			Header:        doc.Metadata.Headers,
 			Body:          io.NopCloser(doc.Body()),
 			ContentLength: doc.BodySize,
-			Trailer:       nil, // TODO
+			Trailer:       doc.Metadata.Trailers,
 		}
 		data, err := httputil.DumpResponse(resp, true)
 		if err != nil {
@@ -452,8 +452,26 @@ func doShow(c *cli.Context) error {
 			return fmt.Errorf("%q not found", u)
 		}
 		fmt.Printf("URL: %s\n", e.URL)
-		fmt.Printf("Extra:\n%s\n", e.Extra)
-		return nil
+		fmt.Printf("In cache: %v\n", e.InCache)
+		fmt.Println()
+		body, err := e.Body()
+		if err != nil {
+			return err
+		}
+		resp := &http.Response{
+			Status:        e.Status,
+			StatusCode:    e.StatusCode,
+			Proto:         e.Proto,
+			Header:        e.Header,
+			ContentLength: e.Size,
+			Body:          body,
+		}
+		data, err := httputil.DumpResponse(resp, true)
+		if err != nil {
+			return err
+		}
+		_, err = os.Stdout.Write(data)
+		return err
 	default:
 		return fmt.Errorf("unsupported format: %s", c.String("format"))
 	}
