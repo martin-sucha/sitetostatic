@@ -200,9 +200,14 @@ func doList(c *cli.Context) error {
 	return nil
 }
 
+type entryData struct {
+	StatusCode int
+	Body       []byte
+}
+
 type entry interface {
 	CanonicalURL() string
-	Body() ([]byte, error)
+	Read() (entryData, error)
 }
 
 type repoEntry struct {
@@ -214,17 +219,21 @@ func (r *repoEntry) CanonicalURL() string {
 	return r.canonicalURL
 }
 
-func (r *repoEntry) Body() ([]byte, error) {
+func (r *repoEntry) Read() (entryData, error) {
 	doc, err := r.e.Open()
 	if err != nil {
-		return nil, err
+		return entryData{}, err
 	}
 	data, err := io.ReadAll(doc.Body())
 	closeErr := doc.Close()
 	if err != nil {
-		return nil, err
+		return entryData{}, err
 	}
-	return data, closeErr
+	ret := entryData{
+		StatusCode: doc.Metadata.StatusCode,
+		Body:       data,
+	}
+	return ret, closeErr
 }
 
 type httrackEntry struct {
@@ -236,17 +245,21 @@ func (h *httrackEntry) CanonicalURL() string {
 	return h.canonicalURL
 }
 
-func (h *httrackEntry) Body() ([]byte, error) {
+func (h *httrackEntry) Read() (entryData, error) {
 	r, err := h.e.Body()
 	if err != nil {
-		return nil, err
+		return entryData{}, err
 	}
 	data, err := io.ReadAll(r)
 	closeErr := r.Close()
 	if err != nil {
-		return nil, err
+		return entryData{}, err
 	}
-	return data, closeErr
+	ret := entryData{
+		StatusCode: h.e.StatusCode,
+		Body:       data,
+	}
+	return ret, closeErr
 }
 
 func doDiff(c *cli.Context) error {
@@ -278,25 +291,29 @@ func doDiff(c *cli.Context) error {
 			fmt.Printf("only in A: %s\n", entriesA[i].CanonicalURL())
 			i++
 		case entriesA[i].CanonicalURL() == entriesB[j].CanonicalURL():
-			aData, err := entriesA[i].Body()
+			aData, err := entriesA[i].Read()
 			if err != nil {
 				return err
 			}
-			bData, err := entriesB[j].Body()
+			bData, err := entriesB[j].Read()
 			if err != nil {
 				return err
 			}
-			if bytes.Equal(aData, bData) {
+			if aData.StatusCode != bData.StatusCode {
+				fmt.Printf("status code differs %s: %d vs %d\n", entriesA[i].CanonicalURL(),
+					aData.StatusCode, bData.StatusCode)
+			}
+			if bytes.Equal(aData.Body, bData.Body) {
 				fmt.Printf("equal: %s\n", entriesA[i].CanonicalURL())
 			} else {
-				if isBinaryData(aData) || isBinaryData(bData) {
+				if isBinaryData(aData.Body) || isBinaryData(bData.Body) {
 					fmt.Printf("binary files different (%d bytes vs %d bytes): %s\n",
-						len(aData), len(bData), entriesA[i].CanonicalURL())
+						len(aData.Body), len(bData.Body), entriesA[i].CanonicalURL())
 				} else {
 					err = difflib.WriteUnifiedDiff(os.Stdout, difflib.UnifiedDiff{
-						A:        splitLines(aData),
+						A:        splitLines(aData.Body),
 						FromFile: "a:" + entriesA[i].CanonicalURL(),
-						B:        splitLines(bData),
+						B:        splitLines(bData.Body),
 						ToFile:   "b:" + entriesB[j].CanonicalURL(),
 						Eol:      "\n",
 					})
