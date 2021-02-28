@@ -36,6 +36,8 @@ func Key(someURL *url.URL) string {
 		rawQuery.WriteString(part.String())
 	}
 	u.RawQuery = rawQuery.String()
+	u.Fragment = ""
+	u.RawFragment = ""
 	return u.String()
 }
 
