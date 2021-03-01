@@ -1,6 +1,8 @@
 // Package httrack implements reading of httrack cache.
 //
 // See https://www.httrack.com/html/cache.html
+//
+// You can use -k httrack option to store all content in the cache.
 package httrack
 
 import (
