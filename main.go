@@ -9,6 +9,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"site-to-static/apache2"
 	"site-to-static/files"
 	"site-to-static/httrack"
 	"site-to-static/repository"
@@ -17,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/pmezard/go-difflib/difflib"
 
@@ -88,6 +91,12 @@ func main() {
 						Usage: "either native or httrack",
 					},
 				},
+			},
+			{
+				Name:      "apache2",
+				Usage:     "generate apache2 config for serving the site",
+				ArgsUsage: "repopath configfile",
+				Action:    doApache2,
 			},
 			{
 				Name:      "files",
@@ -499,6 +508,25 @@ func doShow(c *cli.Context) error {
 	default:
 		return fmt.Errorf("unsupported format: %s", c.String("format"))
 	}
+}
+
+func doApache2(c *cli.Context) error {
+	if c.Args().Len() < 2 {
+		return fmt.Errorf("not enough arguments")
+	}
+	repoPath := c.Args().First()
+	configPath := c.Args().Get(1)
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	var opts apache2.Options
+	err = yaml.Unmarshal(configData, &opts)
+	if err != nil {
+		return err
+	}
+	repo := repository.New(repoPath)
+	return apache2.Generate(repo, opts)
 }
 
 func doFiles(c *cli.Context) error {
