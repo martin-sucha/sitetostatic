@@ -87,8 +87,12 @@ func main() {
 						Usage: "either native or httrack",
 					},
 					&cli.StringFlag{
-						Name:  "ignore-body-for-status",
-						Usage: "Don't show diff for bodies if both have same status code from this list",
+						Name:  "ignore-status",
+						Usage: "Don't show diff if both have same status code from this list",
+					},
+					&cli.BoolFlag{
+						Name:  "headers",
+						Usage: "Show diff of headers",
 					},
 				},
 			},
@@ -285,8 +289,8 @@ func doList(c *cli.Context) error {
 }
 
 type entryData struct {
-	StatusCode int
-	Body       []byte
+	Response *http.Response
+	Body     []byte
 }
 
 type entry interface {
@@ -313,9 +317,18 @@ func (r *repoEntry) Read() (entryData, error) {
 	if err != nil {
 		return entryData{}, err
 	}
+	resp := &http.Response{
+		Status:        doc.Metadata.Status,
+		StatusCode:    doc.Metadata.StatusCode,
+		Proto:         doc.Metadata.Proto,
+		Header:        doc.Metadata.Headers,
+		Body:          io.NopCloser(bytes.NewReader(data)),
+		ContentLength: doc.BodySize,
+		Trailer:       doc.Metadata.Trailers,
+	}
 	ret := entryData{
-		StatusCode: doc.Metadata.StatusCode,
-		Body:       data,
+		Response: resp,
+		Body:     data,
 	}
 	return ret, closeErr
 }
@@ -339,9 +352,17 @@ func (h *httrackEntry) Read() (entryData, error) {
 	if err != nil {
 		return entryData{}, err
 	}
+	resp := &http.Response{
+		Status:        h.e.Status,
+		StatusCode:    h.e.StatusCode,
+		Proto:         h.e.Proto,
+		Header:        h.e.Header,
+		ContentLength: h.e.Size,
+		Body:          io.NopCloser(bytes.NewReader(data)),
+	}
 	ret := entryData{
-		StatusCode: h.e.StatusCode,
-		Body:       data,
+		Response: resp,
+		Body:     data,
 	}
 	return ret, closeErr
 }
@@ -350,14 +371,15 @@ func doDiff(c *cli.Context) error {
 	if c.Args().Len() < 2 {
 		return fmt.Errorf("not enough arguments")
 	}
-	bodyIgnoreStatuses := make(map[int]struct{})
-	if c.String("ignore-body-for-status") != "" {
-		for _, val := range strings.Split(c.String("ignore-body-for-status"), ",") {
+	diffHeaders := c.Bool("headers")
+	ignoreStatuses := make(map[int]struct{})
+	if c.String("ignore-status") != "" {
+		for _, val := range strings.Split(c.String("ignore-status"), ",") {
 			sc, err := strconv.Atoi(val)
 			if err != nil {
-				return fmt.Errorf("ignore-body-for-status can't parse %q: %v", val, err)
+				return fmt.Errorf("ignore-status can't parse %q: %v", val, err)
 			}
-			bodyIgnoreStatuses[sc] = struct{}{}
+			ignoreStatuses[sc] = struct{}{}
 		}
 	}
 	entriesA, err := getEntries(c.Args().Get(0), c.String("a-format"))
@@ -393,14 +415,34 @@ func doDiff(c *cli.Context) error {
 			if err != nil {
 				return err
 			}
-			ignoreBody := false
-			if aData.StatusCode != bData.StatusCode {
+			ignoreDiff := false
+			if aData.Response.StatusCode != bData.Response.StatusCode {
 				fmt.Printf("status code differs %s: %d vs %d\n", entriesA[i].CanonicalURL(),
-					aData.StatusCode, bData.StatusCode)
-			} else if _, ok := bodyIgnoreStatuses[aData.StatusCode]; ok {
-				ignoreBody = true
+					aData.Response.StatusCode, bData.Response.StatusCode)
+			} else if _, ok := ignoreStatuses[aData.Response.StatusCode]; ok {
+				ignoreDiff = true
 			}
-			if ignoreBody {
+			if diffHeaders && !ignoreDiff {
+				aHeaders, err := headerLines(aData.Response)
+				if err != nil {
+					return err
+				}
+				bHeaders, err := headerLines(bData.Response)
+				if err != nil {
+					return err
+				}
+				err = difflib.WriteUnifiedDiff(os.Stdout, difflib.UnifiedDiff{
+					A:        aHeaders,
+					FromFile: "a (headers): " + entriesA[i].CanonicalURL(),
+					B:        bHeaders,
+					ToFile:   "b (headers): " + entriesB[j].CanonicalURL(),
+					Eol:      "\n",
+				})
+				if err != nil {
+					return err
+				}
+			}
+			if ignoreDiff {
 				fmt.Printf("ignored body: %s\n", entriesA[i].CanonicalURL())
 			} else if bytes.Equal(aData.Body, bData.Body) {
 				fmt.Printf("equal: %s\n", entriesA[i].CanonicalURL())
@@ -461,6 +503,18 @@ func splitLines(data []byte) []string {
 		lines = append(lines, sb.String())
 	}
 	return lines
+}
+
+func headerLines(resp *http.Response) ([]string, error) {
+	data, err := httputil.DumpResponse(resp, false)
+	if err != nil {
+		return nil, err
+	}
+	lines := splitLines(data)
+	if len(lines) < 1 {
+		return nil, fmt.Errorf("unexpected response serialization with no lines")
+	}
+	return lines[1:], nil
 }
 
 func getEntries(repoPath, format string) ([]entry, error) {
