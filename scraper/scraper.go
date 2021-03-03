@@ -12,12 +12,13 @@ import (
 	"net/http"
 	"net/url"
 	"runtime/pprof"
-	"site-to-static/repository"
-	"site-to-static/rewrite"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/martin-sucha/site-to-static/repository"
+	"github.com/martin-sucha/site-to-static/rewrite"
 
 	"github.com/tdewolff/parse/v2"
 	"golang.org/x/time/rate"

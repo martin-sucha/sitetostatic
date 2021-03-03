@@ -11,8 +11,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"site-to-static/httrack/internal/zip"
 	"strconv"
+
+	"github.com/martin-sucha/site-to-static/httrack/internal/zip"
 )
 
 type Cache struct {

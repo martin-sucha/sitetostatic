@@ -2,9 +2,10 @@ package repository
 
 import (
 	"net/url"
-	"site-to-static/urlnorm"
 	"sort"
 	"strings"
+
+	"github.com/martin-sucha/site-to-static/urlnorm"
 )
 
 // Key returns a canonical storage key for the given URL.

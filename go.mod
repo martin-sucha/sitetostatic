@@ -1,4 +1,4 @@
-module site-to-static
+module github.com/martin-sucha/site-to-static
 
 go 1.15
 

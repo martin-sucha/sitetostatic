@@ -13,11 +13,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"site-to-static/httrack/internal/obscuretestdata"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/martin-sucha/site-to-static/httrack/internal/obscuretestdata"
 )
 
 type ZipTest struct {

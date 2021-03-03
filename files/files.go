@@ -11,9 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"site-to-static/repository"
-	"site-to-static/urlnorm"
 	"strings"
+
+	"github.com/martin-sucha/site-to-static/repository"
+	"github.com/martin-sucha/site-to-static/urlnorm"
 )
 
 func Generate(repo *repository.Repository, outDir string) error {

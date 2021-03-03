@@ -11,15 +11,16 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"site-to-static/files"
-	"site-to-static/httrack"
-	"site-to-static/repository"
-	"site-to-static/scraper"
-	"site-to-static/urlnorm"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/martin-sucha/site-to-static/files"
+	"github.com/martin-sucha/site-to-static/httrack"
+	"github.com/martin-sucha/site-to-static/repository"
+	"github.com/martin-sucha/site-to-static/scraper"
+	"github.com/martin-sucha/site-to-static/urlnorm"
 
 	"github.com/pmezard/go-difflib/difflib"
 
