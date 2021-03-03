@@ -17,6 +17,7 @@ import (
 	"site-to-static/scraper"
 	"site-to-static/urlnorm"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,6 +85,10 @@ func main() {
 					&cli.StringFlag{
 						Name:  "b-format",
 						Usage: "either native or httrack",
+					},
+					&cli.StringFlag{
+						Name:  "ignore-body-for-status",
+						Usage: "Don't show diff for bodies if both have same status code from this list",
 					},
 				},
 			},
@@ -345,6 +350,16 @@ func doDiff(c *cli.Context) error {
 	if c.Args().Len() < 2 {
 		return fmt.Errorf("not enough arguments")
 	}
+	bodyIgnoreStatuses := make(map[int]struct{})
+	if c.String("ignore-body-for-status") != "" {
+		for _, val := range strings.Split(c.String("ignore-body-for-status"), ",") {
+			sc, err := strconv.Atoi(val)
+			if err != nil {
+				return fmt.Errorf("ignore-body-for-status can't parse %q: %v", val, err)
+			}
+			bodyIgnoreStatuses[sc] = struct{}{}
+		}
+	}
 	entriesA, err := getEntries(c.Args().Get(0), c.String("a-format"))
 	if err != nil {
 		return err
@@ -378,11 +393,16 @@ func doDiff(c *cli.Context) error {
 			if err != nil {
 				return err
 			}
+			ignoreBody := false
 			if aData.StatusCode != bData.StatusCode {
 				fmt.Printf("status code differs %s: %d vs %d\n", entriesA[i].CanonicalURL(),
 					aData.StatusCode, bData.StatusCode)
+			} else if _, ok := bodyIgnoreStatuses[aData.StatusCode]; ok {
+				ignoreBody = true
 			}
-			if bytes.Equal(aData.Body, bData.Body) {
+			if ignoreBody {
+				fmt.Printf("ignored body: %s\n", entriesA[i].CanonicalURL())
+			} else if bytes.Equal(aData.Body, bData.Body) {
 				fmt.Printf("equal: %s\n", entriesA[i].CanonicalURL())
 			} else {
 				if isBinaryData(aData.Body) || isBinaryData(bData.Body) {
