@@ -3,8 +3,10 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -42,6 +44,14 @@ func main() {
 					&cli.StringFlag{
 						Name:  "user-agent",
 						Usage: "User-Agent string to use",
+					},
+					&cli.StringSliceFlag{
+						Name:  "remap-address",
+						Usage: "Format is orig_add|new_addr. Instead of connecting to orig_addr, connect to new_addr",
+					},
+					&cli.BoolFlag{
+						Name:  "strip-https",
+						Usage: "Use plain HTTP (without TLS) for https URLs",
 					},
 				},
 			},
@@ -129,8 +139,48 @@ func doScrape(c *cli.Context) error {
 		rootKeys = append(rootKeys, repository.Key(u))
 	}
 
+	var httpClient http.Client
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           dialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	remapAddresses := c.StringSlice("remap-address")
+	if len(remapAddresses) > 0 {
+		remapAddressesMap := make(map[string]string, len(remapAddresses))
+		for _, mapping := range remapAddresses {
+			mappingParts := strings.SplitN(mapping, "|", 2)
+			if len(mappingParts) != 2 {
+				return fmt.Errorf("parse address mapping %q: | not found", mapping)
+			}
+			remapAddressesMap[strings.ToLower(mappingParts[0])] = mappingParts[1]
+		}
+		dialContext := func(ctx context.Context, network, address string) (net.Conn, error) {
+			if newAddress, ok := remapAddressesMap[strings.ToLower(address)]; ok {
+				return dialer.DialContext(ctx, network, newAddress)
+			}
+			return dialer.DialContext(ctx, network, address)
+		}
+		transport.DialContext = dialContext
+	}
+	httpClient.Transport = transport
+
+	if c.Bool("strip-https") {
+		httpClient.Transport = &stripHTTPSRoundTripper{rt: httpClient.Transport}
+	}
+
 	repo := repository.New(repoPath)
 	sc := scraper.Scraper{
+		Client:     httpClient,
 		Repository: repo,
 		Limiter:    rate.NewLimiter(10, 1),
 		FollowURL: func(u *url.URL) bool {
@@ -146,6 +196,28 @@ func doScrape(c *cli.Context) error {
 	}
 	sc.Scrape(initialURLs, 10)
 	return nil
+}
+
+type stripHTTPSRoundTripper struct {
+	rt http.RoundTripper
+}
+
+func (s *stripHTTPSRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	if strings.ToLower(request.URL.Scheme) != "https" {
+		return s.rt.RoundTrip(request)
+	}
+	newURL := new(url.URL)
+	*newURL = *request.URL
+	newURL.Scheme = "http"
+	newRequest := new(http.Request)
+	*newRequest = *request
+	newRequest.URL = newURL
+	resp, err := s.rt.RoundTrip(newRequest)
+	if resp != nil {
+		// Update request so that we store the original URL in cache.
+		resp.Request = request
+	}
+	return resp, err
 }
 
 func doList(c *cli.Context) error {
