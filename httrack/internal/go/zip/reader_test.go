@@ -18,7 +18,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/martin-sucha/site-to-static/httrack/internal/obscuretestdata"
+	"github.com/martin-sucha/site-to-static/httrack/internal/go/obscuretestdata"
 )
 
 type ZipTest struct {

@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/martin-sucha/site-to-static/httrack/internal/zip"
+	"github.com/martin-sucha/site-to-static/httrack/internal/go/zip"
 )
 
 type Cache struct {
