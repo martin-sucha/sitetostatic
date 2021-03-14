@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +16,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/martin-sucha/site-to-static/rewrite"
+	"github.com/martin-sucha/site-to-static/urlrebase"
 
 	"github.com/martin-sucha/site-to-static/files"
 	"github.com/martin-sucha/site-to-static/httrack"
@@ -114,6 +118,12 @@ func main() {
 				Usage:     "copy files to directory",
 				ArgsUsage: "repopath outdir",
 				Action:    doFiles,
+				Flags: []cli.Flag{
+					&cli.StringSliceFlag{
+						Name:  "rewrite-url",
+						Usage: "oldURL|newURL",
+					},
+				},
 			},
 		},
 	}
@@ -655,5 +665,61 @@ func doFiles(c *cli.Context) error {
 	repoPath := c.Args().First()
 	outputPath := c.Args().Get(1)
 	repo := repository.New(repoPath)
-	return files.Generate(repo, outputPath)
+
+	mappings, err := parseURLMapping(c)
+	if err != nil {
+		return err
+	}
+
+	var urlRewriter rewrite.URLRewriter
+	if len(mappings) > 0 {
+		urlRewriter = func(urlInfo rewrite.URL) (string, error) {
+			parsedURL, err := url.Parse(strings.TrimSpace(urlInfo.Value))
+			if err != nil {
+				return "", err
+			}
+			for _, mapping := range mappings {
+				newURL, err := urlrebase.Rebase(parsedURL, mapping.oldURL, mapping.newURL)
+				switch {
+				case errors.Is(err, urlrebase.ErrNoBase):
+					continue
+				case err != nil:
+					return "", err
+				default:
+					return newURL.String(), nil
+				}
+			}
+			return "", rewrite.ErrNotModified
+		}
+	}
+
+	return files.Generate(repo, outputPath, urlRewriter)
+}
+
+func parseURLMapping(c *cli.Context) ([]urlMapping, error) {
+	var mappings []urlMapping
+	for _, s := range c.StringSlice("rewrite-url") {
+		parts := strings.SplitN(s, "|", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("rewrite-url requires two pipe separated URLs")
+		}
+		oldURL, err := url.Parse(parts[0])
+		if err != nil {
+			return nil, err
+		}
+		newURL, err := url.Parse(parts[1])
+		if err != nil {
+			return nil, err
+		}
+		mappings = append(mappings, urlMapping{
+			oldURL: oldURL,
+			newURL: newURL,
+		})
+	}
+	return mappings, nil
+}
+
+type urlMapping struct {
+	oldURL *url.URL
+	newURL *url.URL
 }

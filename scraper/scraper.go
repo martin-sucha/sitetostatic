@@ -114,7 +114,7 @@ func (s *Scraper) processResponse(resp *http.Response, startTime time.Time, newT
 	supportedContentType := false
 	mediatype, params, err := mime.ParseMediaType(resp.Header.Get("content-type"))
 	if err == nil {
-		supportedContentType = isSupportedMediaType(mediatype, params)
+		supportedContentType = rewrite.IsSupportedMediaType(mediatype, params)
 	}
 	data, err := s.storeResponse(resp, startTime, supportedContentType)
 	if err != nil {
@@ -148,22 +148,7 @@ func (s *Scraper) processResponse(resp *http.Response, startTime time.Time, newT
 		return "", rewrite.ErrNotModified
 	}
 
-	switch mediatype {
-	case "text/html":
-		return rewrite.HTML5(parse.NewInputBytes(data), ioutil.Discard, rewriter)
-	case "text/css":
-		return rewrite.CSS(parse.NewInputBytes(data), ioutil.Discard, rewriter, false)
-	default:
-		return fmt.Errorf("unsupported media type: %s", mediatype)
-	}
-}
-
-// isSupportedMediaType returns whether the given media type (as returned from mime.ParseMediaType) is supported.
-func isSupportedMediaType(mediaType string, params map[string]string) bool {
-	if mediaType != "text/html" && mediaType != "text/css" {
-		return false
-	}
-	return params["charset"] == "" || strings.EqualFold(params["charset"], "utf-8")
+	return rewrite.Document(mediatype, params, parse.NewInputBytes(data), ioutil.Discard, rewriter)
 }
 
 func (s *Scraper) storeResponse(resp *http.Response, startTime time.Time,

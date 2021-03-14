@@ -13,11 +13,15 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/tdewolff/parse/v2"
+
+	"github.com/martin-sucha/site-to-static/rewrite"
+
 	"github.com/martin-sucha/site-to-static/repository"
 	"github.com/martin-sucha/site-to-static/urlnorm"
 )
 
-func Generate(repo *repository.Repository, outDir string) error {
+func Generate(repo *repository.Repository, outDir string, urlRewriter rewrite.URLRewriter) error {
 	entries, err := repo.List()
 	if err != nil {
 		return err
@@ -31,7 +35,7 @@ func Generate(repo *repository.Repository, outDir string) error {
 		if err != nil {
 			return err
 		}
-		err = processEntry(doc, outDir)
+		err = processEntry(doc, outDir, urlRewriter)
 		closeErr := doc.Close()
 		if err != nil {
 			return err
@@ -43,7 +47,7 @@ func Generate(repo *repository.Repository, outDir string) error {
 	return nil
 }
 
-func processEntry(doc *repository.Document, outDir string) error {
+func processEntry(doc *repository.Document, outDir string, urlRewriter rewrite.URLRewriter) error {
 	u, err := url.Parse(doc.Metadata.URL)
 	if err != nil {
 		return err
@@ -59,7 +63,7 @@ func processEntry(doc *repository.Document, outDir string) error {
 		if err != nil {
 			return err
 		}
-		mediatype, _, err := mime.ParseMediaType(doc.Metadata.Headers.Get("content-type"))
+		mediaType, mediaParams, err := mime.ParseMediaType(doc.Metadata.Headers.Get("content-type"))
 		if err != nil {
 			return err
 		}
@@ -69,7 +73,7 @@ func processEntry(doc *repository.Document, outDir string) error {
 		} else if strings.HasSuffix(u.Path, "/") {
 			filename += "index"
 		}
-		if mediatype == "text/html" && !htmlExtensionRe.MatchString(filename) {
+		if mediaType == "text/html" && !htmlExtensionRe.MatchString(filename) {
 			filename += ".html"
 		}
 		outputPath := filepath.Join(outDir, dir, filename)
@@ -82,7 +86,12 @@ func processEntry(doc *repository.Document, outDir string) error {
 		if err != nil {
 			return err
 		}
-		_, err = io.Copy(f, doc.Body())
+		if urlRewriter == nil || !rewrite.IsSupportedMediaType(mediaType, mediaParams) {
+			_, err = io.Copy(f, doc.Body())
+		} else {
+			err = rewrite.Document(mediaType, mediaParams, parse.NewInput(doc.Body()), f, urlRewriter)
+		}
+
 		closeErr := f.Close()
 		if err != nil {
 			return err
