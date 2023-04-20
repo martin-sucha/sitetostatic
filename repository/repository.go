@@ -5,14 +5,14 @@
 //
 // File format of individual files is as follows:
 //
-//  Field        Type             Description
-//  magic        [4]byte          "STS1" identifying the file format
-//  body_size    uint64_le        length of body data in bytes
-//  body_sha256  [32]byte         SHA-256 digest of body data
-//  json_size    uint32_le        length of JSON data in bytes
-//  json_crc32   uint32_le        IEEE crc32 checksum of JSON data
-//  body_data    [body_size]byte  Data of the body
-//  json_data    [json_size]byte  JSON data describing the request
+//	Field        Type             Description
+//	magic        [4]byte          "STS1" identifying the file format
+//	body_size    uint64_le        length of body data in bytes
+//	body_sha256  [32]byte         SHA-256 digest of body data
+//	json_size    uint32_le        length of JSON data in bytes
+//	json_crc32   uint32_le        IEEE crc32 checksum of JSON data
+//	body_data    [body_size]byte  Data of the body
+//	json_data    [json_size]byte  JSON data describing the request
 package repository
 
 import (
@@ -257,6 +257,9 @@ func (r *Repository) List() ([]Entry, error) {
 	entries := make([]Entry, 0, len(names))
 	for _, name := range names {
 		if strings.HasPrefix(name, "tmp-") {
+			continue
+		}
+		if !strings.HasSuffix(name, ".bin") {
 			continue
 		}
 		entries = append(entries, Entry{
