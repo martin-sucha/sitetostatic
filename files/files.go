@@ -30,19 +30,32 @@ func Generate(repo *repository.Repository, outDir string, urlRewriter rewrite.UR
 	if err != nil {
 		return err
 	}
+	var errorCount int64
 	for _, e := range entries {
-		doc, err := e.Open()
+		err = generateEntry(e, outDir, urlRewriter)
 		if err != nil {
-			return err
+			_, _ = fmt.Fprintf(os.Stderr, "%s\n", err)
+			errorCount++
 		}
-		err = processEntry(doc, outDir, urlRewriter)
-		closeErr := doc.Close()
-		if err != nil {
-			return err
-		}
-		if closeErr != nil {
-			return closeErr
-		}
+	}
+	if errorCount > 0 {
+		return fmt.Errorf("%d entries were skipped because of errors", errorCount)
+	}
+	return nil
+}
+
+func generateEntry(e repository.Entry, outDir string, urlRewriter rewrite.URLRewriter) error {
+	doc, err := e.Open()
+	if err != nil {
+		return err
+	}
+	err = processEntry(doc, outDir, urlRewriter)
+	closeErr := doc.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
 	}
 	return nil
 }
