@@ -114,6 +114,18 @@ func main() {
 				},
 			},
 			{
+				Name:      "show-file",
+				Usage:     "show url stored in a repository",
+				ArgsUsage: "repopath filename",
+				Action:    doShowFile,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "format",
+						Usage: "either native or httrack",
+					},
+				},
+			},
+			{
 				Name:      "files",
 				Usage:     "copy files to directory",
 				ArgsUsage: "repopath outdir",
@@ -598,29 +610,7 @@ func doShow(c *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("URL: %s\n", doc.Metadata.URL)
-		fmt.Printf("Key: %s\n", doc.Metadata.Key)
-		fmt.Printf("Download started: %s\n", doc.Metadata.DownloadStartedTime.Format(time.RFC3339))
-		fmt.Println()
-		resp := &http.Response{
-			Status:        doc.Metadata.Status,
-			StatusCode:    doc.Metadata.StatusCode,
-			Proto:         doc.Metadata.Proto,
-			Header:        doc.Metadata.Headers,
-			Body:          io.NopCloser(doc.Body()),
-			ContentLength: doc.BodySize,
-			Trailer:       doc.Metadata.Trailers,
-		}
-		data, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			return err
-		}
-		closeErr := doc.Close()
-		_, err = os.Stdout.Write(data)
-		if err != nil {
-			return err
-		}
-		return closeErr
+		return showDoc(doc)
 	case "httrack":
 		cache, err := httrack.OpenCache(repoPath)
 		if err != nil {
@@ -656,6 +646,47 @@ func doShow(c *cli.Context) error {
 	default:
 		return fmt.Errorf("unsupported format: %s", c.String("format"))
 	}
+}
+
+func showDoc(doc *repository.Document) error {
+	fmt.Printf("URL: %s\n", doc.Metadata.URL)
+	fmt.Printf("Key: %s\n", doc.Metadata.Key)
+	fmt.Printf("Download started: %s\n", doc.Metadata.DownloadStartedTime.Format(time.RFC3339))
+	fmt.Println()
+	resp := &http.Response{
+		Status:        doc.Metadata.Status,
+		StatusCode:    doc.Metadata.StatusCode,
+		Proto:         doc.Metadata.Proto,
+		Header:        doc.Metadata.Headers,
+		Body:          io.NopCloser(doc.Body()),
+		ContentLength: doc.BodySize,
+		Trailer:       doc.Metadata.Trailers,
+	}
+	data, err := httputil.DumpResponse(resp, true)
+	if err != nil {
+		return err
+	}
+	closeErr := doc.Close()
+	_, err = os.Stdout.Write(data)
+	if err != nil {
+		return err
+	}
+	return closeErr
+}
+
+func doShowFile(c *cli.Context) error {
+	if c.Args().Len() < 2 {
+		return fmt.Errorf("not enough arguments")
+	}
+	repoPath := c.Args().First()
+	filename := c.Args().Get(1)
+
+	repo := repository.New(repoPath)
+	doc, err := repo.LoadPath(filename)
+	if err != nil {
+		return err
+	}
+	return showDoc(doc)
 }
 
 func doFiles(c *cli.Context) error {

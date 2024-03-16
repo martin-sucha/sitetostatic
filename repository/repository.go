@@ -166,6 +166,10 @@ func (r *Repository) Load(key string) (outDoc *Document, outErr error) {
 	return openDocumentPath(path.Join(r.path, keyToFilename(key)))
 }
 
+func (r *Repository) LoadPath(filename string) (*Document, error) {
+	return openDocumentPath(path.Join(r.path, filename))
+}
+
 func openDocumentPath(filePath string) (outDoc *Document, outErr error) {
 	f, err := os.Open(filePath)
 	if err != nil {
