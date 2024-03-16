@@ -70,7 +70,7 @@ func processEntry(doc *repository.Document, outDir string, urlRewriter rewrite.U
 		filename := u.Path
 		if u.RawQuery != "" {
 			filename += "?" + u.RawQuery
-		} else if strings.HasSuffix(u.Path, "/") {
+		} else if strings.HasSuffix(u.Path, "/") || u.Path == "" {
 			filename += "index"
 		}
 		if mediaType == "text/html" && !htmlExtensionRe.MatchString(filename) {
